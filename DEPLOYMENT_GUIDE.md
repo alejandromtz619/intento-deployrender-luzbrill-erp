@@ -89,7 +89,7 @@ En **"Environment Variables"**, agrega:
 
 ```
 REACT_APP_API_URL = https://[URL-DE-TU-BACKEND]/api
-NODE_VERSION = 18.18.0
+NODE_VERSION = 20.18.0
 ```
 
 **Ejemplo**: Si tu backend es `https://luzbrill-backend.onrender.com`, entonces:
