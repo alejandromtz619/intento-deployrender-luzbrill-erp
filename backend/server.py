@@ -376,7 +376,6 @@ async def obtener_permisos_usuario(usuario_id: int, db: AsyncSession = Depends(g
         .join(RolPermiso, Permiso.id == RolPermiso.permiso_id)
         .join(UsuarioRol, RolPermiso.rol_id == UsuarioRol.rol_id)
         .where(UsuarioRol.usuario_id == usuario_id)
-        .where(Permiso.estado == True)
         .distinct()
     )
     permisos = result.scalars().all()
