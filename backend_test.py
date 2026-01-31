@@ -11,7 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 
 class LuzBrillAPITester:
-    def __init__(self, base_url="https://luzbrill-erp.preview.emergentagent.com"):
+    def __init__(self, base_url="https://enterprise-luz.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = None
         self.empresa_id = None

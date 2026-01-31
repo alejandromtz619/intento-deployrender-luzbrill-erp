@@ -384,8 +384,9 @@ const Funcionarios = () => {
                 <TableHead>Funcionario</TableHead>
                 <TableHead>Cédula</TableHead>
                 <TableHead>Cargo</TableHead>
-                <TableHead>Salario</TableHead>
-                <TableHead>IPS</TableHead>
+                <TableHead>Salario Base</TableHead>
+                <TableHead>Adelantos Mes</TableHead>
+                <TableHead>Restante</TableHead>
                 <TableHead className="w-28">Acciones</TableHead>
               </TableRow>
             </TableHeader>
@@ -405,8 +406,11 @@ const Funcionarios = () => {
                   <TableCell className="font-mono text-sm">{funcionario.cedula || '-'}</TableCell>
                   <TableCell>{funcionario.cargo || '-'}</TableCell>
                   <TableCell className="font-mono-data">{formatCurrency(funcionario.salario_base)}</TableCell>
-                  <TableCell className="font-mono-data">
-                    {funcionario.ips ? formatCurrency(funcionario.ips) : '-'}
+                  <TableCell className="font-mono-data text-orange-600">
+                    {funcionario.total_adelantos_mes > 0 ? formatCurrency(funcionario.total_adelantos_mes) : '-'}
+                  </TableCell>
+                  <TableCell className="font-mono-data font-semibold text-green-600">
+                    {formatCurrency(funcionario.salario_restante)}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">

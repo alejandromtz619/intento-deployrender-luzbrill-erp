@@ -10,9 +10,31 @@ export const useApp = () => {
   return context;
 };
 
+// Map de permisos requeridos por ruta
+const ROUTE_PERMISSIONS = {
+  '/dashboard': null, // todos pueden ver
+  '/ventas': 'ventas.crear',
+  '/delivery': 'delivery.ver',
+  '/laboratorio': 'laboratorio.ver',
+  '/productos': 'productos.ver',
+  '/marcas': 'productos.ver',
+  '/proveedores': 'proveedores.ver',
+  '/clientes': 'clientes.ver',
+  '/funcionarios': 'funcionarios.ver',
+  '/stock': 'stock.ver',
+  '/flota': 'flota.ver',
+  '/facturas': 'facturas.ver',
+  '/usuarios': 'usuarios.gestionar',
+  '/permisos': 'usuarios.gestionar',
+  '/sistema': 'sistema.configurar',
+  '/historial-ventas': 'ventas.ver_historial',
+  '/reportes': 'reportes.ver',
+};
+
 export const AppProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [empresa, setEmpresa] = useState(null);
+  const [userPermisos, setUserPermisos] = useState([]);
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [primaryColor, setPrimaryColor] = useState(localStorage.getItem('primaryColor') || 'blue');
@@ -30,14 +52,32 @@ export const AppProvider = ({ children }) => {
     localStorage.setItem('primaryColor', primaryColor);
   }, [primaryColor]);
 
+  // Fetch user permissions when user changes
+  const fetchUserPermisos = async (userId, authToken) => {
+    try {
+      const res = await fetch(`${API_URL}/usuarios/${userId}/permisos`, {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      if (res.ok) {
+        const permisos = await res.json();
+        setUserPermisos(permisos.map(p => p.clave));
+        localStorage.setItem('userPermisos', JSON.stringify(permisos.map(p => p.clave)));
+      }
+    } catch (e) {
+      console.error('Failed to fetch user permissions:', e);
+    }
+  };
+
   // Check auth on mount
   useEffect(() => {
     const checkAuth = async () => {
       if (token) {
         try {
           const userData = JSON.parse(localStorage.getItem('user') || '{}');
+          const cachedPermisos = JSON.parse(localStorage.getItem('userPermisos') || '[]');
           if (userData.id) {
             setUser(userData);
+            setUserPermisos(cachedPermisos);
             // Fetch empresa
             const res = await fetch(`${API_URL}/empresas/${userData.empresa_id}`, {
               headers: { 'Authorization': `Bearer ${token}` }
@@ -46,6 +86,8 @@ export const AppProvider = ({ children }) => {
               const empresaData = await res.json();
               setEmpresa(empresaData);
             }
+            // Refresh permissions
+            await fetchUserPermisos(userData.id, token);
           }
         } catch (e) {
           console.error('Auth check failed:', e);
@@ -84,6 +126,9 @@ export const AppProvider = ({ children }) => {
       setEmpresa(empresaData);
     }
     
+    // Fetch user permissions
+    await fetchUserPermisos(data.usuario.id, data.access_token);
+    
     return data;
   };
 
@@ -91,8 +136,10 @@ export const AppProvider = ({ children }) => {
     setToken(null);
     setUser(null);
     setEmpresa(null);
+    setUserPermisos([]);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('userPermisos');
   };
 
   const api = async (endpoint, options = {}) => {
@@ -115,6 +162,21 @@ export const AppProvider = ({ children }) => {
     return res.json();
   };
 
+  // Check if user has a specific permission
+  const hasPermission = (permiso) => {
+    if (!permiso) return true; // null permission means everyone can access
+    if (!user) return false;
+    // Admin role has all permissions
+    if (user.rol?.nombre === 'ADMIN' || user.rol_id === 1) return true;
+    return userPermisos.includes(permiso);
+  };
+
+  // Check if user can access a route
+  const canAccessRoute = (path) => {
+    const requiredPermission = ROUTE_PERMISSIONS[path];
+    return hasPermission(requiredPermission);
+  };
+
   const value = {
     user,
     empresa,
@@ -122,12 +184,16 @@ export const AppProvider = ({ children }) => {
     theme,
     primaryColor,
     loading,
+    userPermisos,
     login,
     logout,
     setTheme,
     setPrimaryColor,
     api,
-    API_URL
+    API_URL,
+    hasPermission,
+    canAccessRoute,
+    ROUTE_PERMISSIONS
   };
 
   return (

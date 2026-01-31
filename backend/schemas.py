@@ -80,6 +80,7 @@ class UsuarioResponse(UsuarioBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
     empresa_id: int
+    rol_id: Optional[int] = None
     activo: bool
     creado_en: Optional[datetime] = None
 
@@ -120,6 +121,7 @@ class ClienteBase(BaseModel):
     email: Optional[str] = None
     acepta_cheque: bool = False
     descuento_porcentaje: Optional[Decimal] = 0
+    limite_credito: Optional[Decimal] = 0
 
 class ClienteCreate(ClienteBase):
     empresa_id: int
@@ -131,11 +133,43 @@ class ClienteResponse(ClienteBase):
     estado: bool
     creado_en: Optional[datetime] = None
 
+class ClienteConCredito(ClienteResponse):
+    credito_usado: Decimal = 0
+    credito_disponible: Decimal = 0
+
 # Credito Cliente
 class CreditoClienteBase(BaseModel):
-    limite_credito: Decimal = 0
-    saldo_actual: Decimal = 0
-    periodo: Optional[str] = None
+    monto_original: Decimal
+    monto_pendiente: Decimal
+    descripcion: Optional[str] = None
+
+class CreditoClienteCreate(BaseModel):
+    cliente_id: int
+    venta_id: Optional[int] = None
+    monto_original: Decimal
+    descripcion: Optional[str] = None
+
+class CreditoClienteResponse(CreditoClienteBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    cliente_id: int
+    venta_id: Optional[int] = None
+    fecha_venta: Optional[date] = None
+    pagado: bool
+    creado_en: Optional[datetime] = None
+
+# Pago Credito
+class PagoCreditoCreate(BaseModel):
+    monto: Decimal
+    observacion: Optional[str] = None
+
+class PagoCreditoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    credito_id: int
+    monto: Decimal
+    fecha_pago: Optional[datetime] = None
+    observacion: Optional[str] = None
 
 class CreditoClienteCreate(CreditoClienteBase):
     cliente_id: int
@@ -167,6 +201,8 @@ class ProveedorResponse(ProveedorBase):
 class DeudaProveedorBase(BaseModel):
     monto: Decimal
     descripcion: Optional[str] = None
+    fecha_emision: Optional[date] = None
+    fecha_limite: Optional[date] = None
     pagado: bool = False
 
 class DeudaProveedorCreate(DeudaProveedorBase):
@@ -176,6 +212,7 @@ class DeudaProveedorResponse(DeudaProveedorBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
     proveedor_id: int
+    fecha_pago: Optional[date] = None
     creado_en: Optional[datetime] = None
 
 # Categoria

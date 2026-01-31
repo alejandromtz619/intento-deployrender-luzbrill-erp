@@ -20,6 +20,10 @@ import Flota from './pages/Flota';
 import Facturas from './pages/Facturas';
 import Usuarios from './pages/Usuarios';
 import Sistema from './pages/Sistema';
+import Marcas from './pages/Marcas';
+import Permisos from './pages/Permisos';
+import HistorialVentas from './pages/HistorialVentas';
+import Reportes from './pages/Reportes';
 
 import './App.css';
 
@@ -92,6 +96,17 @@ const AppRoutes = () => {
           <ProtectedRoute>
             <Layout>
               <Delivery />
+            </Layout>
+          </ProtectedRoute>
+        } 
+      />
+      
+      <Route 
+        path="/historial-ventas" 
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <HistorialVentas />
             </Layout>
           </ProtectedRoute>
         } 
@@ -191,6 +206,39 @@ const AppRoutes = () => {
           <ProtectedRoute>
             <Layout>
               <Usuarios />
+            </Layout>
+          </ProtectedRoute>
+        } 
+      />
+      
+      <Route 
+        path="/marcas" 
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Marcas />
+            </Layout>
+          </ProtectedRoute>
+        } 
+      />
+      
+      <Route 
+        path="/permisos" 
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Permisos />
+            </Layout>
+          </ProtectedRoute>
+        } 
+      />
+      
+      <Route 
+        path="/reportes" 
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Reportes />
             </Layout>
           </ProtectedRoute>
         } 

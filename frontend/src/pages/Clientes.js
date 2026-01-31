@@ -6,6 +6,8 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Badge } from '../components/ui/badge';
 import { Checkbox } from '../components/ui/checkbox';
+import { ScrollArea } from '../components/ui/scroll-area';
+import { Separator } from '../components/ui/separator';
 import {
   Table,
   TableBody,
@@ -21,17 +23,31 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '../components/ui/dialog';
-import { Users, Plus, Loader2, Search, Edit, Trash2, CreditCard } from 'lucide-react';
+import { Users, Plus, Loader2, Search, Edit, Trash2, CreditCard, DollarSign, Check } from 'lucide-react';
 import { toast } from 'sonner';
+
+const formatCurrency = (val) => {
+  return new Intl.NumberFormat('es-PY', {
+    style: 'currency',
+    currency: 'PYG',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(val || 0);
+};
 
 const Clientes = () => {
   const { api, empresa } = useApp();
   const [clientes, setClientes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [creditoDialogOpen, setCreditoDialogOpen] = useState(false);
+  const [selectedCliente, setSelectedCliente] = useState(null);
+  const [creditos, setCreditos] = useState([]);
+  const [creditoInfo, setCreditoInfo] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
+  const [pagoForm, setPagoForm] = useState({ credito_id: null, monto: '', observacion: '' });
   
   const [formData, setFormData] = useState({
     nombre: '',
@@ -42,7 +58,8 @@ const Clientes = () => {
     telefono: '',
     email: '',
     acepta_cheque: false,
-    descuento_porcentaje: '0'
+    descuento_porcentaje: '0',
+    limite_credito: '0'
   });
 
   const fetchClientes = async () => {
@@ -71,7 +88,8 @@ const Clientes = () => {
       telefono: '',
       email: '',
       acepta_cheque: false,
-      descuento_porcentaje: '0'
+      descuento_porcentaje: '0',
+      limite_credito: '0'
     });
     setEditingId(null);
   };
@@ -86,7 +104,8 @@ const Clientes = () => {
       telefono: cliente.telefono || '',
       email: cliente.email || '',
       acepta_cheque: cliente.acepta_cheque || false,
-      descuento_porcentaje: cliente.descuento_porcentaje?.toString() || '0'
+      descuento_porcentaje: cliente.descuento_porcentaje?.toString() || '0',
+      limite_credito: cliente.limite_credito?.toString() || '0'
     });
     setEditingId(cliente.id);
     setDialogOpen(true);
@@ -104,7 +123,8 @@ const Clientes = () => {
     try {
       const payload = {
         ...formData,
-        descuento_porcentaje: parseFloat(formData.descuento_porcentaje) || 0
+        descuento_porcentaje: parseFloat(formData.descuento_porcentaje) || 0,
+        limite_credito: parseFloat(formData.limite_credito) || 0
       };
 
       if (editingId) {
@@ -139,6 +159,49 @@ const Clientes = () => {
       fetchClientes();
     } catch (e) {
       toast.error('Error al eliminar');
+    }
+  };
+
+  // Créditos functions
+  const handleOpenCreditos = async (cliente) => {
+    setSelectedCliente(cliente);
+    setCreditoDialogOpen(true);
+    await fetchCreditos(cliente.id);
+  };
+
+  const fetchCreditos = async (clienteId) => {
+    try {
+      const [creditosData, infoData] = await Promise.all([
+        api(`/clientes/${clienteId}/creditos`),
+        api(`/clientes/${clienteId}/credito-disponible`)
+      ]);
+      setCreditos(creditosData);
+      setCreditoInfo(infoData);
+    } catch (e) {
+      toast.error('Error al cargar créditos');
+    }
+  };
+
+  const handlePagarCredito = async (e) => {
+    e.preventDefault();
+    if (!pagoForm.monto || parseFloat(pagoForm.monto) <= 0) {
+      toast.error('Ingrese un monto válido');
+      return;
+    }
+
+    try {
+      await api(`/creditos/${pagoForm.credito_id}/pagar`, {
+        method: 'POST',
+        body: JSON.stringify({
+          monto: parseFloat(pagoForm.monto),
+          observacion: pagoForm.observacion
+        })
+      });
+      toast.success('Pago registrado');
+      setPagoForm({ credito_id: null, monto: '', observacion: '' });
+      await fetchCreditos(selectedCliente.id);
+    } catch (e) {
+      toast.error(e.message || 'Error al registrar pago');
     }
   };
 
@@ -240,6 +303,16 @@ const Clientes = () => {
                     onChange={(e) => setFormData({...formData, descuento_porcentaje: e.target.value})}
                   />
                 </div>
+                <div>
+                  <Label>Límite Crédito (Gs)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={formData.limite_credito}
+                    onChange={(e) => setFormData({...formData, limite_credito: e.target.value})}
+                    placeholder="0 = sin límite"
+                  />
+                </div>
                 <div className="flex items-center space-x-2 pt-6">
                   <Checkbox
                     id="acepta_cheque"
@@ -289,8 +362,9 @@ const Clientes = () => {
                 <TableHead>RUC</TableHead>
                 <TableHead>Teléfono</TableHead>
                 <TableHead>Descuento</TableHead>
+                <TableHead>Límite Créd.</TableHead>
                 <TableHead>Cheque</TableHead>
-                <TableHead className="w-20">Acciones</TableHead>
+                <TableHead className="w-28">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -311,11 +385,22 @@ const Clientes = () => {
                       <Badge className="badge-success">{cliente.descuento_porcentaje}%</Badge>
                     )}
                   </TableCell>
+                  <TableCell className="font-mono-data text-sm">
+                    {cliente.limite_credito > 0 ? formatCurrency(cliente.limite_credito) : '-'}
+                  </TableCell>
                   <TableCell>
                     {cliente.acepta_cheque && <Badge className="badge-info">Sí</Badge>}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => handleOpenCreditos(cliente)}
+                        title="Ver créditos"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(cliente)}>
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -330,6 +415,159 @@ const Clientes = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Dialog de Créditos */}
+      <Dialog open={creditoDialogOpen} onOpenChange={setCreditoDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5" />
+              Créditos - {selectedCliente?.nombre} {selectedCliente?.apellido || ''}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {/* Summary */}
+          {creditoInfo && (
+            <div className="grid grid-cols-3 gap-4 p-4 bg-secondary rounded-lg">
+              <div>
+                <p className="text-xs text-muted-foreground">Límite</p>
+                <p className="font-mono-data font-medium">
+                  {formatCurrency(creditoInfo.limite_credito)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Usado</p>
+                <p className="font-mono-data font-medium text-orange-600">
+                  {formatCurrency(creditoInfo.credito_usado)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Disponible</p>
+                <p className="font-mono-data font-medium text-green-600">
+                  {formatCurrency(creditoInfo.credito_disponible)}
+                </p>
+              </div>
+            </div>
+          )}
+          
+          <Separator />
+          
+          {/* Créditos List */}
+          <ScrollArea className="flex-1">
+            <div className="space-y-3 pr-4">
+              {creditos.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">
+                  Este cliente no tiene créditos registrados
+                </p>
+              ) : (
+                creditos.map((credito) => (
+                  <div 
+                    key={credito.id} 
+                    className={`p-4 border rounded-lg ${credito.pagado ? 'bg-muted/50' : 'bg-background'}`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          {credito.venta_id && (
+                            <Badge variant="outline">Venta #{credito.venta_id}</Badge>
+                          )}
+                          {credito.pagado ? (
+                            <Badge className="badge-success">Pagado</Badge>
+                          ) : (
+                            <Badge variant="destructive">Pendiente</Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {credito.descripcion || 'Sin descripción'}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Fecha: {new Date(credito.fecha_venta).toLocaleDateString('es-PY')}
+                        </p>
+                        
+                        {/* Pagos realizados */}
+                        {credito.pagos && credito.pagos.length > 0 && (
+                          <div className="mt-2 pt-2 border-t">
+                            <p className="text-xs font-medium mb-1">Pagos realizados:</p>
+                            {credito.pagos.map((pago) => (
+                              <div key={pago.id} className="text-xs text-muted-foreground flex justify-between">
+                                <span>{new Date(pago.fecha_pago).toLocaleDateString('es-PY')}</span>
+                                <span className="font-mono">{formatCurrency(pago.monto)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">Original</p>
+                        <p className="font-mono-data text-sm">{formatCurrency(credito.monto_original)}</p>
+                        <p className="text-xs text-muted-foreground mt-2">Pendiente</p>
+                        <p className="font-mono-data font-bold text-lg">
+                          {formatCurrency(credito.monto_pendiente)}
+                        </p>
+                        
+                        {!credito.pagado && (
+                          <Button 
+                            size="sm" 
+                            className="mt-2"
+                            onClick={() => setPagoForm({ 
+                              credito_id: credito.id, 
+                              monto: credito.monto_pendiente.toString(),
+                              observacion: '' 
+                            })}
+                          >
+                            <DollarSign className="h-4 w-4 mr-1" />
+                            Cobrar
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Formulario de pago inline */}
+                    {pagoForm.credito_id === credito.id && (
+                      <form onSubmit={handlePagarCredito} className="mt-4 pt-4 border-t">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <Label className="text-xs">Monto a cobrar</Label>
+                            <Input
+                              type="number"
+                              value={pagoForm.monto}
+                              onChange={(e) => setPagoForm({...pagoForm, monto: e.target.value})}
+                              max={credito.monto_pendiente}
+                            />
+                          </div>
+                          <div className="col-span-2">
+                            <Label className="text-xs">Observación</Label>
+                            <Input
+                              value={pagoForm.observacion}
+                              onChange={(e) => setPagoForm({...pagoForm, observacion: e.target.value})}
+                              placeholder="Opcional"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-2">
+                          <Button type="submit" size="sm">
+                            <Check className="h-4 w-4 mr-1" />
+                            Registrar Pago
+                          </Button>
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => setPagoForm({ credito_id: null, monto: '', observacion: '' })}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

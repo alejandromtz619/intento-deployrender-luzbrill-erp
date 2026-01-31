@@ -45,7 +45,8 @@ const Proveedores = () => {
 
   const [deudaForm, setDeudaForm] = useState({
     monto: '',
-    descripcion: ''
+    descripcion: '',
+    fecha_limite: ''
   });
 
   const fetchProveedores = async () => {
@@ -152,11 +153,12 @@ const Proveedores = () => {
         method: 'POST',
         body: JSON.stringify({
           monto: parseFloat(deudaForm.monto),
-          descripcion: deudaForm.descripcion
+          descripcion: deudaForm.descripcion,
+          fecha_limite: deudaForm.fecha_limite || null
         })
       });
       toast.success('Deuda registrada');
-      setDeudaForm({ monto: '', descripcion: '' });
+      setDeudaForm({ monto: '', descripcion: '', fecha_limite: '' });
       fetchDeudas(selectedProveedor.id);
     } catch (e) {
       toast.error('Error al crear deuda');
@@ -271,42 +273,90 @@ const Proveedores = () => {
             <DialogTitle>Deudas - {selectedProveedor?.nombre}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <form onSubmit={handleCrearDeuda} className="flex gap-2">
-              <Input
-                type="number"
-                placeholder="Monto"
-                value={deudaForm.monto}
-                onChange={(e) => setDeudaForm({...deudaForm, monto: e.target.value})}
-                className="flex-1"
-              />
-              <Input
-                placeholder="Descripción"
-                value={deudaForm.descripcion}
-                onChange={(e) => setDeudaForm({...deudaForm, descripcion: e.target.value})}
-                className="flex-1"
-              />
-              <Button type="submit">
-                <Plus className="h-4 w-4" />
+            {/* Summary */}
+            <div className="grid grid-cols-2 gap-4 p-4 bg-secondary rounded-lg">
+              <div>
+                <p className="text-xs text-muted-foreground">Total Pendiente</p>
+                <p className="font-mono-data font-medium text-orange-600">
+                  {formatCurrency(deudas.filter(d => !d.pagado).reduce((sum, d) => sum + parseFloat(d.monto), 0))}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Total Pagado</p>
+                <p className="font-mono-data font-medium text-green-600">
+                  {formatCurrency(deudas.filter(d => d.pagado).reduce((sum, d) => sum + parseFloat(d.monto), 0))}
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleCrearDeuda} className="space-y-3 p-3 border rounded-lg">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Monto *</Label>
+                  <Input
+                    type="number"
+                    placeholder="Monto"
+                    value={deudaForm.monto}
+                    onChange={(e) => setDeudaForm({...deudaForm, monto: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Fecha Límite</Label>
+                  <Input
+                    type="date"
+                    value={deudaForm.fecha_limite}
+                    onChange={(e) => setDeudaForm({...deudaForm, fecha_limite: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Descripción</Label>
+                <Input
+                  placeholder="Descripción de la deuda"
+                  value={deudaForm.descripcion}
+                  onChange={(e) => setDeudaForm({...deudaForm, descripcion: e.target.value})}
+                />
+              </div>
+              <Button type="submit" className="w-full" size="sm">
+                <Plus className="h-4 w-4 mr-1" /> Registrar Deuda
               </Button>
             </form>
             
+            {/* Deudas List */}
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {deudas.length === 0 ? (
                 <p className="text-center text-muted-foreground py-4">Sin deudas registradas</p>
               ) : (
                 deudas.map((deuda) => (
-                  <div key={deuda.id} className="flex items-center justify-between p-3 bg-secondary rounded-lg">
-                    <div>
-                      <p className="font-mono-data font-medium">{formatCurrency(deuda.monto)}</p>
-                      <p className="text-xs text-muted-foreground">{deuda.descripcion || 'Sin descripción'}</p>
+                  <div key={deuda.id} className="p-3 bg-secondary rounded-lg">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <p className="font-mono-data font-medium">{formatCurrency(deuda.monto)}</p>
+                        <p className="text-xs text-muted-foreground">{deuda.descripcion || 'Sin descripción'}</p>
+                        <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
+                          <span>Emitida: {new Date(deuda.creado_en).toLocaleDateString('es-PY')}</span>
+                          {deuda.fecha_limite && (
+                            <span className={new Date(deuda.fecha_limite) < new Date() && !deuda.pagado ? 'text-destructive' : ''}>
+                              Vence: {new Date(deuda.fecha_limite).toLocaleDateString('es-PY')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {deuda.pagado ? (
+                        <div className="text-right">
+                          <Badge className="badge-success">Pagado</Badge>
+                          {deuda.fecha_pago && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {new Date(deuda.fecha_pago).toLocaleDateString('es-PY')}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <Button size="sm" onClick={() => handlePagarDeuda(deuda.id)}>
+                          <Check className="h-4 w-4 mr-1" /> Pagar
+                        </Button>
+                      )}
                     </div>
-                    {deuda.pagado ? (
-                      <Badge className="badge-success">Pagado</Badge>
-                    ) : (
-                      <Button size="sm" onClick={() => handlePagarDeuda(deuda.id)}>
-                        <Check className="h-4 w-4 mr-1" /> Pagar
-                      </Button>
-                    )}
                   </div>
                 ))
               )}

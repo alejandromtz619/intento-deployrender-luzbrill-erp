@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Separator } from '../components/ui/separator';
-import { Settings, Sun, Moon, Palette, Phone, User } from 'lucide-react';
+import { Badge } from '../components/ui/badge';
+import { Settings, Sun, Moon, Palette, Phone, User, DollarSign, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 
@@ -21,6 +23,74 @@ const colorOptions = [
 const Sistema = () => {
   const { user, theme, setTheme, primaryColor, setPrimaryColor, api } = useApp();
   const [saving, setSaving] = useState(false);
+  
+  // Currency exchange state
+  const [cotizacion, setCotizacion] = useState(null);
+  const [loadingCotizacion, setLoadingCotizacion] = useState(true);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualUsd, setManualUsd] = useState('');
+  const [manualBrl, setManualBrl] = useState('');
+  const [savingCotizacion, setSavingCotizacion] = useState(false);
+
+  useEffect(() => {
+    fetchCotizacion();
+  }, []);
+
+  const fetchCotizacion = async () => {
+    setLoadingCotizacion(true);
+    try {
+      const data = await api('/cotizacion');
+      setCotizacion(data);
+      setManualMode(data.manual);
+      if (data.manual) {
+        setManualUsd(data.usd_pyg?.toString() || '');
+        setManualBrl(data.brl_pyg?.toString() || '');
+      }
+    } catch (e) {
+      toast.error('Error al cargar cotización');
+    } finally {
+      setLoadingCotizacion(false);
+    }
+  };
+
+  const handleSaveManualCotizacion = async () => {
+    if (!manualUsd || !manualBrl) {
+      toast.error('Ingrese ambas cotizaciones');
+      return;
+    }
+    
+    setSavingCotizacion(true);
+    try {
+      await api('/cotizacion/manual', {
+        method: 'POST',
+        body: JSON.stringify({
+          usd_pyg: parseFloat(manualUsd),
+          brl_pyg: parseFloat(manualBrl),
+          manual: true
+        })
+      });
+      toast.success('Cotización manual guardada');
+      fetchCotizacion();
+    } catch (e) {
+      toast.error('Error al guardar cotización');
+    } finally {
+      setSavingCotizacion(false);
+    }
+  };
+
+  const handleActivateAutoCotizacion = async () => {
+    setSavingCotizacion(true);
+    try {
+      await api('/cotizacion/auto', { method: 'POST' });
+      toast.success('Cotización automática activada');
+      setManualMode(false);
+      fetchCotizacion();
+    } catch (e) {
+      toast.error('Error al activar cotización automática');
+    } finally {
+      setSavingCotizacion(false);
+    }
+  };
 
   const handleSavePreferences = async () => {
     if (!user?.id) return;
@@ -109,6 +179,120 @@ const Sistema = () => {
           <Button onClick={handleSavePreferences} disabled={saving} className="w-full">
             {saving ? 'Guardando...' : 'Guardar Preferencias'}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Currency Exchange Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5" />
+            Cotización de Divisas
+          </CardTitle>
+          <CardDescription>
+            Configure la cotización USD/PYG y BRL/PYG
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loadingCotizacion ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : (
+            <>
+              {/* Current Values */}
+              <div className="grid grid-cols-2 gap-4 p-4 bg-secondary rounded-lg">
+                <div>
+                  <p className="text-xs text-muted-foreground">USD → PYG</p>
+                  <p className="font-mono-data text-lg font-semibold">
+                    {cotizacion?.usd_pyg ? Number(cotizacion.usd_pyg).toLocaleString('es-PY') : '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">BRL → PYG</p>
+                  <p className="font-mono-data text-lg font-semibold">
+                    {cotizacion?.brl_pyg ? Number(cotizacion.brl_pyg).toLocaleString('es-PY') : '-'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Mode Indicator */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Badge variant={cotizacion?.manual ? "secondary" : "default"}>
+                    {cotizacion?.manual ? 'Manual' : 'Automático'}
+                  </Badge>
+                  {cotizacion?.fecha_actualizacion && (
+                    <span className="text-xs text-muted-foreground">
+                      Actualizado: {new Date(cotizacion.fecha_actualizacion).toLocaleString('es-PY')}
+                    </span>
+                  )}
+                </div>
+                {!cotizacion?.manual && (
+                  <Button variant="outline" size="sm" onClick={fetchCotizacion}>
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                    Actualizar
+                  </Button>
+                )}
+              </div>
+
+              <Separator />
+
+              {/* Manual Mode Toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Modo Manual</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Ingresar cotización manualmente
+                  </p>
+                </div>
+                <Switch
+                  checked={manualMode}
+                  onCheckedChange={(checked) => {
+                    setManualMode(checked);
+                    if (!checked) handleActivateAutoCotizacion();
+                  }}
+                  data-testid="manual-cotizacion-switch"
+                />
+              </div>
+
+              {/* Manual Input Fields */}
+              {manualMode && (
+                <div className="space-y-4 p-4 border rounded-lg">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>USD → PYG</Label>
+                      <Input
+                        type="number"
+                        placeholder="Ej: 7500"
+                        value={manualUsd}
+                        onChange={(e) => setManualUsd(e.target.value)}
+                        data-testid="manual-usd-input"
+                      />
+                    </div>
+                    <div>
+                      <Label>BRL → PYG</Label>
+                      <Input
+                        type="number"
+                        placeholder="Ej: 1500"
+                        value={manualBrl}
+                        onChange={(e) => setManualBrl(e.target.value)}
+                        data-testid="manual-brl-input"
+                      />
+                    </div>
+                  </div>
+                  <Button 
+                    onClick={handleSaveManualCotizacion} 
+                    disabled={savingCotizacion}
+                    className="w-full"
+                  >
+                    {savingCotizacion && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                    Guardar Cotización Manual
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
 

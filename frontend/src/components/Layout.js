@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext';
 import { 
   LayoutDashboard, ShoppingCart, Truck, Package, Users, Building2, 
   FlaskConical, Warehouse, Car, FileText, Settings, UserCog, LogOut,
-  Menu, X, ChevronDown, Sun, Moon
+  Menu, X, ChevronDown, Sun, Moon, Tag, Shield, History, FileBarChart
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { ScrollArea } from '../components/ui/scroll-area';
@@ -17,27 +17,34 @@ import {
 } from '../components/ui/dropdown-menu';
 import { cn } from '../lib/utils';
 
-const menuItems = [
+const allMenuItems = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/ventas', icon: ShoppingCart, label: 'Ventas' },
+  { path: '/historial-ventas', icon: History, label: 'Historial Ventas' },
   { path: '/delivery', icon: Truck, label: 'Delivery' },
   { path: '/laboratorio', icon: FlaskConical, label: 'Laboratorio' },
   { path: '/productos', icon: Package, label: 'Productos' },
+  { path: '/marcas', icon: Tag, label: 'Marcas' },
   { path: '/proveedores', icon: Building2, label: 'Proveedores' },
   { path: '/clientes', icon: Users, label: 'Clientes' },
   { path: '/funcionarios', icon: UserCog, label: 'Funcionarios' },
   { path: '/stock', icon: Warehouse, label: 'Stock' },
   { path: '/flota', icon: Car, label: 'Flota' },
   { path: '/facturas', icon: FileText, label: 'Facturas' },
+  { path: '/reportes', icon: FileBarChart, label: 'Reportes' },
   { path: '/usuarios', icon: Users, label: 'Usuarios' },
+  { path: '/permisos', icon: Shield, label: 'Permisos' },
   { path: '/sistema', icon: Settings, label: 'Sistema' },
 ];
 
 const Layout = ({ children }) => {
-  const { user, empresa, logout, theme, setTheme } = useApp();
+  const { user, empresa, logout, theme, setTheme, canAccessRoute } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
+
+  // Filter menu items based on user permissions
+  const menuItems = allMenuItems.filter(item => canAccessRoute(item.path));
 
   const handleLogout = () => {
     logout();

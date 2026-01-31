@@ -83,6 +83,7 @@ class Usuario(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=False)
+    rol_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     nombre = Column(String(255), nullable=False)
@@ -93,6 +94,7 @@ class Usuario(Base):
     actualizado_en = Column(DateTime(timezone=True), onupdate=func.now())
     
     empresa = relationship("Empresa", back_populates="usuarios")
+    rol = relationship("Rol", foreign_keys=[rol_id])
     roles = relationship("UsuarioRol", back_populates="usuario")
     preferencias = relationship("PreferenciaUsuario", back_populates="usuario", uselist=False)
     ventas = relationship("Venta", back_populates="usuario")
@@ -151,6 +153,7 @@ class Cliente(Base):
     email = Column(String(255))
     acepta_cheque = Column(Boolean, default=False)
     descuento_porcentaje = Column(Numeric(5, 2), default=0)
+    limite_credito = Column(Numeric(15, 2), default=0)  # Límite máximo de crédito
     estado = Column(Boolean, default=True)
     creado_en = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -159,15 +162,33 @@ class Cliente(Base):
     ventas = relationship("Venta", back_populates="cliente", foreign_keys="Venta.cliente_id")
 
 class CreditoCliente(Base):
+    """Cada transacción a crédito de un cliente"""
     __tablename__ = "creditos_clientes"
     
     id = Column(Integer, primary_key=True, index=True)
     cliente_id = Column(Integer, ForeignKey("clientes.id"), nullable=False)
-    limite_credito = Column(Numeric(15, 2), default=0)
-    saldo_actual = Column(Numeric(15, 2), default=0)
-    periodo = Column(String(7))  # YYYY-MM
+    venta_id = Column(Integer, ForeignKey("ventas.id"), nullable=True)
+    monto_original = Column(Numeric(15, 2), nullable=False)  # Monto inicial del crédito
+    monto_pendiente = Column(Numeric(15, 2), nullable=False)  # Lo que falta pagar
+    descripcion = Column(Text)
+    fecha_venta = Column(Date, default=func.current_date())
+    pagado = Column(Boolean, default=False)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now())
     
     cliente = relationship("Cliente", back_populates="creditos")
+    pagos = relationship("PagoCredito", back_populates="credito")
+
+class PagoCredito(Base):
+    """Pagos parciales o totales a un crédito"""
+    __tablename__ = "pagos_creditos"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    credito_id = Column(Integer, ForeignKey("creditos_clientes.id"), nullable=False)
+    monto = Column(Numeric(15, 2), nullable=False)
+    fecha_pago = Column(DateTime(timezone=True), server_default=func.now())
+    observacion = Column(Text)
+    
+    credito = relationship("CreditoCliente", back_populates="pagos")
 
 class Proveedor(Base):
     __tablename__ = "proveedores"
@@ -204,6 +225,9 @@ class DeudaProveedor(Base):
     proveedor_id = Column(Integer, ForeignKey("proveedores.id"), nullable=False)
     monto = Column(Numeric(15, 2), nullable=False)
     descripcion = Column(Text)
+    fecha_emision = Column(Date, default=func.current_date())
+    fecha_limite = Column(Date, nullable=True)
+    fecha_pago = Column(Date, nullable=True)
     pagado = Column(Boolean, default=False)
     creado_en = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -380,9 +404,13 @@ class CicloSalario(Base):
     id = Column(Integer, primary_key=True, index=True)
     funcionario_id = Column(Integer, ForeignKey("funcionarios.id"), nullable=False)
     periodo = Column(String(7))  # YYYY-MM
-    total_adelantos = Column(Numeric(15, 2), default=0)
-    pago_final = Column(Numeric(15, 2), default=0)
+    fecha_inicio = Column(Date)
+    fecha_fin = Column(Date)
+    salario_base = Column(Numeric(15, 2), default=0)
+    descuentos = Column(Numeric(15, 2), default=0)  # Adelantos y otros descuentos
+    salario_neto = Column(Numeric(15, 2), default=0)
     pagado = Column(Boolean, default=False)
+    fecha_pago = Column(DateTime(timezone=True), nullable=True)
     
     funcionario = relationship("Funcionario", back_populates="ciclos")
 

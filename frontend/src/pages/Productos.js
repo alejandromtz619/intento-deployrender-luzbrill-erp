@@ -28,7 +28,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '../components/ui/dialog';
-import { Package, Plus, Loader2, Search, Edit, Trash2, Upload } from 'lucide-react';
+import { Package, Plus, Loader2, Search, Edit, Trash2, Upload, Expand } from 'lucide-react';
 import { toast } from 'sonner';
 
 const Productos = () => {
@@ -38,6 +38,8 @@ const Productos = () => {
   const [marcas, setMarcas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
@@ -311,21 +313,34 @@ const Productos = () => {
           <Table>
             <TableHeader>
               <TableRow className="table-compact">
+                <TableHead className="w-16">ID</TableHead>
                 <TableHead>Producto</TableHead>
                 <TableHead>Código</TableHead>
                 <TableHead>Categoría</TableHead>
                 <TableHead>Precio</TableHead>
                 <TableHead>Stock</TableHead>
-                <TableHead className="w-20">Acciones</TableHead>
+                <TableHead className="w-28">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredProductos.map((producto) => (
                 <TableRow key={producto.id} data-testid={`producto-row-${producto.id}`}>
+                  <TableCell className="font-mono text-sm font-bold">{producto.id}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-3">
                       {producto.imagen_url ? (
-                        <img src={producto.imagen_url} alt="" className="w-10 h-10 rounded object-cover" />
+                        <div 
+                          className="relative w-10 h-10 cursor-pointer group"
+                          onClick={() => {
+                            setSelectedImage(producto.imagen_url);
+                            setImageDialogOpen(true);
+                          }}
+                        >
+                          <img src={producto.imagen_url} alt="" className="w-10 h-10 rounded object-cover" />
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center">
+                            <Expand className="h-4 w-4 text-white" />
+                          </div>
+                        </div>
                       ) : (
                         <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
                           <Package className="h-5 w-5 text-muted-foreground" />
@@ -363,6 +378,22 @@ const Productos = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Image Preview Dialog */}
+      <Dialog open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Imagen del Producto</DialogTitle>
+          </DialogHeader>
+          {selectedImage && (
+            <img 
+              src={selectedImage} 
+              alt="Producto" 
+              className="w-full h-auto max-h-[70vh] object-contain rounded-lg"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

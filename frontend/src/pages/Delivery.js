@@ -48,9 +48,9 @@ const Delivery = () => {
   const [filtros, setFiltros] = useState({
     fechaDesde: new Date().toISOString().split('T')[0],
     fechaHasta: '',
-    vehiculoId: '',
-    responsableId: '',
-    estado: ''
+    vehiculoId: 'all',
+    responsableId: 'all',
+    estado: 'all'
   });
 
   const fetchData = async () => {
@@ -59,9 +59,9 @@ const Delivery = () => {
       let url = `/entregas?empresa_id=${empresa.id}`;
       if (filtros.fechaDesde) url += `&fecha_desde=${filtros.fechaDesde}`;
       if (filtros.fechaHasta) url += `&fecha_hasta=${filtros.fechaHasta}`;
-      if (filtros.vehiculoId) url += `&vehiculo_id=${filtros.vehiculoId}`;
-      if (filtros.responsableId) url += `&responsable_id=${filtros.responsableId}`;
-      if (filtros.estado) url += `&estado=${filtros.estado}`;
+      if (filtros.vehiculoId && filtros.vehiculoId !== 'all') url += `&vehiculo_id=${filtros.vehiculoId}`;
+      if (filtros.responsableId && filtros.responsableId !== 'all') url += `&responsable_id=${filtros.responsableId}`;
+      if (filtros.estado && filtros.estado !== 'all') url += `&estado=${filtros.estado}`;
       
       const [entregasData, vehiculosData, usuariosData] = await Promise.all([
         api(url),
@@ -151,7 +151,7 @@ const Delivery = () => {
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos</SelectItem>
+                  <SelectItem value="all">Todos</SelectItem>
                   {vehiculos.map(v => (
                     <SelectItem key={v.id} value={v.id.toString()}>{v.tipo} - {v.chapa}</SelectItem>
                   ))}
@@ -165,7 +165,7 @@ const Delivery = () => {
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos</SelectItem>
+                  <SelectItem value="all">Todos</SelectItem>
                   {usuarios.map(u => (
                     <SelectItem key={u.id} value={u.id.toString()}>{u.nombre}</SelectItem>
                   ))}
@@ -179,7 +179,7 @@ const Delivery = () => {
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos</SelectItem>
+                  <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="PENDIENTE">Pendiente</SelectItem>
                   <SelectItem value="EN_CAMINO">En Camino</SelectItem>
                   <SelectItem value="ENTREGADO">Entregado</SelectItem>

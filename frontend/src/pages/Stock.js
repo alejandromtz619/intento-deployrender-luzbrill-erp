@@ -27,7 +27,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '../components/ui/dialog';
-import { Warehouse, Plus, Loader2, Search, ArrowRight, Bell, Package } from 'lucide-react';
+import { Warehouse, Plus, Loader2, Search, ArrowRight, Bell, Package, Minus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 
@@ -38,6 +38,7 @@ const Stock = () => {
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [salidaDialogOpen, setSalidaDialogOpen] = useState(false);
   const [traspasoDialogOpen, setTraspasoDialogOpen] = useState(false);
   const [almacenDialogOpen, setAlmacenDialogOpen] = useState(false);
   const [selectedAlmacen, setSelectedAlmacen] = useState('');
@@ -47,6 +48,13 @@ const Stock = () => {
     producto_id: '',
     almacen_id: '',
     cantidad: ''
+  });
+
+  const [salidaForm, setSalidaForm] = useState({
+    producto_id: '',
+    almacen_id: '',
+    cantidad: '',
+    motivo: ''
   });
 
   const [traspasoForm, setTraspasoForm] = useState({
@@ -142,6 +150,32 @@ const Stock = () => {
       fetchData();
     } catch (e) {
       toast.error(e.message || 'Error al realizar traspaso');
+    }
+  };
+
+  const handleSalida = async (e) => {
+    e.preventDefault();
+    if (!salidaForm.producto_id || !salidaForm.almacen_id || !salidaForm.cantidad) {
+      toast.error('Complete todos los campos');
+      return;
+    }
+
+    try {
+      await api('/stock/salida', {
+        method: 'POST',
+        body: JSON.stringify({
+          producto_id: parseInt(salidaForm.producto_id),
+          almacen_id: parseInt(salidaForm.almacen_id),
+          cantidad: parseInt(salidaForm.cantidad),
+          motivo: salidaForm.motivo || 'Salida manual'
+        })
+      });
+      toast.success('Salida registrada');
+      setSalidaDialogOpen(false);
+      setSalidaForm({ producto_id: '', almacen_id: '', cantidad: '', motivo: '' });
+      fetchData();
+    } catch (e) {
+      toast.error(e.message || 'Error al registrar salida');
     }
   };
 
@@ -343,6 +377,67 @@ const Stock = () => {
                   />
                 </div>
                 <Button type="submit" className="w-full">Registrar Entrada</Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          {/* Salida Stock */}
+          <Dialog open={salidaDialogOpen} onOpenChange={setSalidaDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="destructive" data-testid="salida-stock-btn">
+                <Minus className="mr-2 h-4 w-4" />
+                Salida
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Salida/Eliminación de Stock</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSalida} className="space-y-4">
+                <div>
+                  <Label>Producto</Label>
+                  <Select value={salidaForm.producto_id} onValueChange={(v) => setSalidaForm({...salidaForm, producto_id: v})}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar producto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {productos.map(p => (
+                        <SelectItem key={p.id} value={p.id.toString()}>{p.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Almacén</Label>
+                  <Select value={salidaForm.almacen_id} onValueChange={(v) => setSalidaForm({...salidaForm, almacen_id: v})}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar almacén" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {almacenes.map(a => (
+                        <SelectItem key={a.id} value={a.id.toString()}>{a.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Cantidad</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={salidaForm.cantidad}
+                    onChange={(e) => setSalidaForm({...salidaForm, cantidad: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <Label>Motivo</Label>
+                  <Input
+                    value={salidaForm.motivo}
+                    onChange={(e) => setSalidaForm({...salidaForm, motivo: e.target.value})}
+                    placeholder="Ej: Producto dañado, vencido, etc."
+                  />
+                </div>
+                <Button type="submit" variant="destructive" className="w-full">Registrar Salida</Button>
               </form>
             </DialogContent>
           </Dialog>

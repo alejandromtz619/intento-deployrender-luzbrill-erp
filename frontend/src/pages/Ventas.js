@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
+import PrintModal from '../components/PrintModal';
 
 const Ventas = () => {
   const { api, empresa, user } = useApp();
@@ -65,6 +66,10 @@ const Ventas = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [clienteDialogOpen, setClienteDialogOpen] = useState(false);
+  
+  // Print modal state
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [lastVentaId, setLastVentaId] = useState(null);
   
   // Load data
   useEffect(() => {
@@ -205,6 +210,11 @@ const Ventas = () => {
       if (value < 1) return;
     }
     
+    // Permitir modificar precio (para gerente/admin)
+    if (field === 'precio_unitario') {
+      if (value < 0) return;
+    }
+    
     newCart[index][field] = value;
     setCart(newCart);
   };
@@ -213,9 +223,10 @@ const Ventas = () => {
     setCart(cart.filter((_, i) => i !== index));
   };
 
-  // Calculate totals
+  // Calculate totals - usar privilegios del representante si existe
+  const clientePrivilegios = isRepresentante && representante ? representante : selectedCliente;
   const subtotal = cart.reduce((sum, item) => sum + (item.cantidad * item.precio_unitario), 0);
-  const descuentoPorcentaje = selectedCliente?.descuento_porcentaje || 0;
+  const descuentoPorcentaje = clientePrivilegios?.descuento_porcentaje || 0;
   const descuento = subtotal * descuentoPorcentaje / 100;
   const subtotalConDescuento = subtotal - descuento;
   const iva = subtotalConDescuento * 10 / 110; // IVA 10% included
@@ -243,6 +254,12 @@ const Ventas = () => {
     
     if (esDelivery && (!vehiculoId || !responsableId)) {
       toast.error('Seleccione vehículo y responsable para delivery');
+      return;
+    }
+    
+    // Validate cheque payment
+    if (tipoPago === 'CHEQUE' && !selectedCliente.acepta_cheque) {
+      toast.error('Este cliente no tiene habilitado el pago con cheque');
       return;
     }
     
@@ -288,6 +305,10 @@ const Ventas = () => {
       
       toast.success('Venta creada exitosamente');
       
+      // Store venta ID for printing and show print modal
+      setLastVentaId(venta.id);
+      setPrintModalOpen(true);
+      
       // Reset form
       setSelectedCliente(null);
       setRepresentante(null);
@@ -312,7 +333,8 @@ const Ventas = () => {
   // Filter products
   const filteredProductos = productos.filter(p => 
     p.nombre.toLowerCase().includes(searchProducto.toLowerCase()) ||
-    p.codigo_barra?.toLowerCase().includes(searchProducto.toLowerCase())
+    p.codigo_barra?.toLowerCase().includes(searchProducto.toLowerCase()) ||
+    p.id.toString() === searchProducto
   );
 
   // Filter clients
@@ -474,7 +496,7 @@ const Ventas = () => {
               <div className="relative w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Buscar producto..."
+                  placeholder="Buscar por nombre o ID..."
                   className="pl-9"
                   value={searchProducto}
                   onChange={(e) => setSearchProducto(e.target.value)}
@@ -507,6 +529,7 @@ const Ventas = () => {
                         <Package className="h-8 w-8 text-muted-foreground" />
                       </div>
                     )}
+                    <Badge variant="outline" className="mb-1 text-xs">ID: {producto.id}</Badge>
                     <p className="font-medium text-sm truncate">{producto.nombre}</p>
                     <p className="font-mono-data text-sm text-primary font-semibold">
                       {formatCurrency(producto.precio_venta)}
@@ -612,8 +635,18 @@ const Ventas = () => {
                         >
                           +
                         </Button>
+                      </div>
+                      {/* Precio editable */}
+                      <div className="flex items-center gap-2 mt-2">
+                        <Label className="text-xs">Precio:</Label>
+                        <Input
+                          type="number"
+                          value={item.precio_unitario}
+                          onChange={(e) => updateCartItem(idx, 'precio_unitario', parseFloat(e.target.value) || 0)}
+                          className="w-28 h-7 text-right font-mono-data"
+                        />
                         <span className="text-sm font-mono-data font-semibold ml-auto">
-                          {formatCurrency(item.cantidad * item.precio_unitario)}
+                          = {formatCurrency(item.cantidad * item.precio_unitario)}
                         </span>
                       </div>
                     </div>
@@ -661,10 +694,20 @@ const Ventas = () => {
                     <SelectItem value="EFECTIVO">Efectivo</SelectItem>
                     <SelectItem value="TARJETA">Tarjeta</SelectItem>
                     <SelectItem value="TRANSFERENCIA">Transferencia</SelectItem>
-                    <SelectItem value="CHEQUE">Cheque</SelectItem>
+                    <SelectItem 
+                      value="CHEQUE" 
+                      disabled={selectedCliente && !selectedCliente.acepta_cheque}
+                    >
+                      Cheque {selectedCliente && !selectedCliente.acepta_cheque && '(No habilitado)'}
+                    </SelectItem>
                     <SelectItem value="CREDITO">Crédito</SelectItem>
                   </SelectContent>
                 </Select>
+                {tipoPago === 'CHEQUE' && selectedCliente && !selectedCliente.acepta_cheque && (
+                  <p className="text-xs text-destructive mt-1">
+                    Este cliente no tiene habilitado el pago con cheque
+                  </p>
+                )}
               </div>
 
               {/* Delivery Option */}
@@ -739,6 +782,13 @@ const Ventas = () => {
           </CardContent>
         </Card>
       </div>
+      
+      {/* Print Modal */}
+      <PrintModal 
+        open={printModalOpen} 
+        onOpenChange={setPrintModalOpen}
+        ventaId={lastVentaId}
+      />
     </div>
   );
 };

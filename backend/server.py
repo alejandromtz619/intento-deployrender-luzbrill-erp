@@ -1,7 +1,9 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, status
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func as func_sql, and_, or_, update
 from sqlalchemy.orm import selectinload
 from dotenv import load_dotenv
 from pathlib import Path
@@ -13,12 +15,21 @@ import logging
 import httpx
 import bcrypt
 import jwt
+import uuid
+import shutil
+import io
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch, cm
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
 # Local imports
 from database import get_db, init_db, engine, Base
 from models import (
     Empresa, Usuario, Rol, Permiso, RolPermiso, UsuarioRol,
-    Cliente, CreditoCliente, Proveedor, ProveedorProducto, DeudaProveedor,
+    Cliente, CreditoCliente, PagoCredito, Proveedor, ProveedorProducto, DeudaProveedor,
     Categoria, Marca, Producto, MateriaLaboratorio, EstadoMateria,
     Almacen, StockActual, MovimientoStock, TipoMovimientoStock,
     Venta, VentaItem, EstadoVenta, TipoPago,
@@ -51,6 +62,10 @@ from schemas import (
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Create uploads directory
+UPLOADS_DIR = ROOT_DIR / 'uploads' / 'productos'
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
 # JWT Config
 JWT_SECRET = os.environ.get('JWT_SECRET', 'luzbrill-secret-key-change-in-production')
 JWT_ALGORITHM = "HS256"
@@ -59,6 +74,14 @@ JWT_EXPIRATION_HOURS = 24
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Manual currency rates storage
+MANUAL_CURRENCY_RATES = {
+    'usd_pyg': None,
+    'brl_pyg': None,
+    'manual': False,
+    'updated_at': None
+}
 
 # Create FastAPI app
 app = FastAPI(title="Luz Brill ERP API", version="1.0.0")
@@ -71,6 +94,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for uploads
+app.mount("/uploads", StaticFiles(directory=str(ROOT_DIR / 'uploads')), name="uploads")
 
 # API Router
 api_router = APIRouter(prefix="/api")
@@ -89,6 +115,48 @@ def create_token(usuario_id: int) -> str:
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
+def numero_a_letras(numero):
+    """Convert number to Spanish words for receipts"""
+    unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve']
+    decenas = ['', 'diez', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa']
+    especiales = {11: 'once', 12: 'doce', 13: 'trece', 14: 'catorce', 15: 'quince', 
+                  16: 'dieciséis', 17: 'diecisiete', 18: 'dieciocho', 19: 'diecinueve'}
+    centenas = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos',
+                'seiscientos', 'setecientos', 'ochocientos', 'novecientos']
+    
+    n = int(numero)
+    if n == 0:
+        return 'cero'
+    if n == 100:
+        return 'cien'
+    
+    resultado = ''
+    
+    if n >= 1000000:
+        millones = n // 1000000
+        resultado += ('un millón ' if millones == 1 else numero_a_letras(millones) + ' millones ')
+        n %= 1000000
+    
+    if n >= 1000:
+        miles = n // 1000
+        resultado += ('mil ' if miles == 1 else numero_a_letras(miles) + ' mil ')
+        n %= 1000
+    
+    if n >= 100:
+        resultado += centenas[n // 100] + ' '
+        n %= 100
+    
+    if n in especiales:
+        resultado += especiales[n]
+    elif n >= 10:
+        resultado += decenas[n // 10]
+        if n % 10:
+            resultado += ' y ' + unidades[n % 10]
+    elif n > 0:
+        resultado += unidades[n]
+    
+    return resultado.strip()
+
 # ==================== ROOT ====================
 @api_router.get("/")
 async def root():
@@ -97,93 +165,6 @@ async def root():
 @api_router.get("/health")
 async def health():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
-
-@api_router.post("/seed-database")
-async def seed_database(db: AsyncSession = Depends(get_db)):
-    """
-    Endpoint para poblar la base de datos con datos iniciales
-    Solo usar en primera configuración
-    """
-    try:
-        # 1. Crear Empresa
-        result = await db.execute(select(Empresa).where(Empresa.ruc == "12345678901"))
-        empresa = result.scalar_one_or_none()
-        
-        if not empresa:
-            empresa = Empresa(
-                ruc="12345678901",
-                razon_social="Luz Brill S.A.",
-                nombre_comercial="Luz Brill",
-                direccion="Av. Principal 123",
-                telefono="123456789",
-                email="contacto@luzbrill.com",
-                estado=True
-            )
-            db.add(empresa)
-            await db.commit()
-            await db.refresh(empresa)
-        
-        # 2. Crear Rol Administrador
-        result = await db.execute(select(Rol).where(Rol.nombre == "Administrador"))
-        rol_admin = result.scalar_one_or_none()
-        
-        if not rol_admin:
-            rol_admin = Rol(
-                nombre="Administrador",
-                descripcion="Acceso total al sistema",
-                empresa_id=empresa.id,
-                estado=True
-            )
-            db.add(rol_admin)
-            await db.commit()
-            await db.refresh(rol_admin)
-        
-        # 3. Crear Usuario Administrador
-        result = await db.execute(select(Usuario).where(Usuario.email == "admin@luzbrill.com"))
-        usuario = result.scalar_one_or_none()
-        
-        if not usuario:
-            usuario = Usuario(
-                email="admin@luzbrill.com",
-                password_hash=hash_password("admin123"),
-                nombre="Admin",
-                apellido="Sistema",
-                telefono="123456789",
-                empresa_id=empresa.id,
-                estado=True
-            )
-            db.add(usuario)
-            await db.commit()
-            await db.refresh(usuario)
-        
-        # 4. Asignar Rol al Usuario
-        result = await db.execute(
-            select(UsuarioRol).where(
-                UsuarioRol.usuario_id == usuario.id,
-                UsuarioRol.rol_id == rol_admin.id
-            )
-        )
-        usuario_rol = result.scalar_one_or_none()
-        
-        if not usuario_rol:
-            usuario_rol = UsuarioRol(
-                usuario_id=usuario.id,
-                rol_id=rol_admin.id
-            )
-            db.add(usuario_rol)
-            await db.commit()
-        
-        return {
-            "status": "success",
-            "message": "Base de datos poblada exitosamente",
-            "credentials": {
-                "email": "admin@luzbrill.com",
-                "password": "admin123"
-            }
-        }
-    except Exception as e:
-        logger.error(f"Error al poblar base de datos: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error al poblar base de datos: {str(e)}")
 
 # ==================== EMPRESA ====================
 @api_router.post("/empresas", response_model=EmpresaResponse)
@@ -210,7 +191,6 @@ async def obtener_empresa(empresa_id: int, db: AsyncSession = Depends(get_db)):
 # ==================== AUTH ====================
 @api_router.post("/auth/register", response_model=TokenResponse)
 async def registrar_usuario(data: UsuarioCreate, db: AsyncSession = Depends(get_db)):
-    # Check if email exists
     existing = await db.execute(select(Usuario).where(Usuario.email == data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email ya registrado")
@@ -294,6 +274,28 @@ async def eliminar_usuario(usuario_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "Usuario desactivado"}
 
+@api_router.get("/usuarios/{usuario_id}/permisos")
+async def obtener_permisos_usuario(usuario_id: int, db: AsyncSession = Depends(get_db)):
+    """Obtiene todos los permisos del usuario basados en su rol"""
+    # Get user with rol
+    result = await db.execute(select(Usuario).where(Usuario.id == usuario_id))
+    usuario = result.scalar_one_or_none()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    if not usuario.rol_id:
+        return []
+    
+    # Get all permissions for user's role
+    result = await db.execute(
+        select(Permiso)
+        .join(RolPermiso, RolPermiso.permiso_id == Permiso.id)
+        .where(RolPermiso.rol_id == usuario.rol_id)
+    )
+    permisos = result.scalars().all()
+    
+    return [{"id": p.id, "clave": p.clave, "descripcion": p.descripcion} for p in permisos]
+
 # ==================== ROLES Y PERMISOS ====================
 @api_router.post("/roles", response_model=RolResponse)
 async def crear_rol(data: RolCreate, db: AsyncSession = Depends(get_db)):
@@ -313,19 +315,83 @@ async def listar_permisos(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Permiso))
     return result.scalars().all()
 
+@api_router.post("/permisos", response_model=PermisoResponse)
+async def crear_permiso(data: dict, db: AsyncSession = Depends(get_db)):
+    permiso = Permiso(clave=data['clave'], descripcion=data.get('descripcion'))
+    db.add(permiso)
+    await db.commit()
+    await db.refresh(permiso)
+    return permiso
+
 @api_router.post("/roles/{rol_id}/permisos/{permiso_id}")
 async def asignar_permiso_rol(rol_id: int, permiso_id: int, db: AsyncSession = Depends(get_db)):
+    # Check if already exists
+    existing = await db.execute(
+        select(RolPermiso).where(RolPermiso.rol_id == rol_id, RolPermiso.permiso_id == permiso_id)
+    )
+    if existing.scalar_one_or_none():
+        return {"message": "Permiso ya asignado"}
+    
     rol_permiso = RolPermiso(rol_id=rol_id, permiso_id=permiso_id)
     db.add(rol_permiso)
     await db.commit()
     return {"message": "Permiso asignado"}
 
+@api_router.delete("/roles/{rol_id}/permisos/{permiso_id}")
+async def quitar_permiso_rol(rol_id: int, permiso_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(RolPermiso).where(RolPermiso.rol_id == rol_id, RolPermiso.permiso_id == permiso_id)
+    )
+    rol_permiso = result.scalar_one_or_none()
+    if rol_permiso:
+        await db.delete(rol_permiso)
+        await db.commit()
+    return {"message": "Permiso quitado"}
+
+@api_router.get("/roles/{rol_id}/permisos")
+async def obtener_permisos_rol(rol_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Permiso)
+        .join(RolPermiso, Permiso.id == RolPermiso.permiso_id)
+        .where(RolPermiso.rol_id == rol_id)
+    )
+    return result.scalars().all()
+
 @api_router.post("/usuarios/{usuario_id}/roles/{rol_id}")
 async def asignar_rol_usuario(usuario_id: int, rol_id: int, db: AsyncSession = Depends(get_db)):
+    # Check if already exists
+    existing = await db.execute(
+        select(UsuarioRol).where(UsuarioRol.usuario_id == usuario_id, UsuarioRol.rol_id == rol_id)
+    )
+    if existing.scalar_one_or_none():
+        return {"message": "Rol ya asignado"}
+    
     usuario_rol = UsuarioRol(usuario_id=usuario_id, rol_id=rol_id)
     db.add(usuario_rol)
     await db.commit()
     return {"message": "Rol asignado"}
+
+@api_router.delete("/usuarios/{usuario_id}/roles/{rol_id}")
+async def quitar_rol_usuario(usuario_id: int, rol_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(UsuarioRol).where(UsuarioRol.usuario_id == usuario_id, UsuarioRol.rol_id == rol_id)
+    )
+    usuario_rol = result.scalar_one_or_none()
+    if usuario_rol:
+        await db.delete(usuario_rol)
+        await db.commit()
+    return {"message": "Rol quitado"}
+
+@api_router.get("/usuarios/{usuario_id}/permisos")
+async def obtener_permisos_usuario(usuario_id: int, db: AsyncSession = Depends(get_db)):
+    """Get all permissions for a user through their roles"""
+    result = await db.execute(
+        select(Permiso)
+        .join(RolPermiso, Permiso.id == RolPermiso.permiso_id)
+        .join(UsuarioRol, RolPermiso.rol_id == UsuarioRol.rol_id)
+        .where(UsuarioRol.usuario_id == usuario_id)
+    )
+    return list(set(result.scalars().all()))
 
 # ==================== CLIENTES ====================
 @api_router.post("/clientes", response_model=ClienteResponse)
@@ -378,33 +444,152 @@ async def eliminar_cliente(cliente_id: int, db: AsyncSession = Depends(get_db)):
     return {"message": "Cliente desactivado"}
 
 # ==================== CREDITOS CLIENTES ====================
+@api_router.get("/clientes/{cliente_id}/credito-disponible")
+async def obtener_credito_disponible(cliente_id: int, db: AsyncSession = Depends(get_db)):
+    """Obtiene el crédito usado y disponible de un cliente"""
+    result = await db.execute(select(Cliente).where(Cliente.id == cliente_id))
+    cliente = result.scalar_one_or_none()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    
+    # Calcular crédito usado (suma de monto_pendiente de créditos no pagados)
+    creditos_result = await db.execute(
+        select(func_sql.coalesce(func_sql.sum(CreditoCliente.monto_pendiente), 0))
+        .where(CreditoCliente.cliente_id == cliente_id, CreditoCliente.pagado == False)
+    )
+    credito_usado = creditos_result.scalar() or Decimal('0')
+    
+    limite = cliente.limite_credito or Decimal('0')
+    disponible = max(Decimal('0'), limite - credito_usado)
+    
+    return {
+        "cliente_id": cliente_id,
+        "limite_credito": float(limite),
+        "credito_usado": float(credito_usado),
+        "credito_disponible": float(disponible)
+    }
+
 @api_router.post("/clientes/{cliente_id}/creditos", response_model=CreditoClienteResponse)
-async def crear_credito_cliente(cliente_id: int, data: CreditoClienteCreate, db: AsyncSession = Depends(get_db)):
-    credito = CreditoCliente(cliente_id=cliente_id, **data.model_dump(exclude={'cliente_id'}))
+async def crear_credito_cliente(cliente_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+    """Registra una nueva transacción a crédito"""
+    monto = Decimal(str(data.get('monto_original', 0)))
+    
+    # Verificar límite de crédito
+    result = await db.execute(select(Cliente).where(Cliente.id == cliente_id))
+    cliente = result.scalar_one_or_none()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    
+    # Calcular crédito actual
+    creditos_result = await db.execute(
+        select(func_sql.coalesce(func_sql.sum(CreditoCliente.monto_pendiente), 0))
+        .where(CreditoCliente.cliente_id == cliente_id, CreditoCliente.pagado == False)
+    )
+    credito_usado = creditos_result.scalar() or Decimal('0')
+    
+    limite = cliente.limite_credito or Decimal('0')
+    if limite > 0 and (credito_usado + monto) > limite:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Crédito excede el límite. Disponible: {float(limite - credito_usado):,.0f} Gs"
+        )
+    
+    credito = CreditoCliente(
+        cliente_id=cliente_id,
+        venta_id=data.get('venta_id'),
+        monto_original=monto,
+        monto_pendiente=monto,
+        descripcion=data.get('descripcion'),
+        fecha_venta=date.today()
+    )
     db.add(credito)
     await db.commit()
     await db.refresh(credito)
     return credito
 
-@api_router.get("/clientes/{cliente_id}/creditos", response_model=List[CreditoClienteResponse])
-async def listar_creditos_cliente(cliente_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(CreditoCliente).where(CreditoCliente.cliente_id == cliente_id))
-    return result.scalars().all()
+@api_router.get("/clientes/{cliente_id}/creditos")
+async def listar_creditos_cliente(cliente_id: int, solo_pendientes: bool = False, db: AsyncSession = Depends(get_db)):
+    """Lista todos los créditos de un cliente con sus pagos"""
+    query = select(CreditoCliente).where(CreditoCliente.cliente_id == cliente_id).order_by(CreditoCliente.fecha_venta.desc())
+    if solo_pendientes:
+        query = query.where(CreditoCliente.pagado == False)
+    
+    result = await db.execute(query)
+    creditos = result.scalars().all()
+    
+    response = []
+    for credito in creditos:
+        # Get pagos for this credito
+        pagos_result = await db.execute(
+            select(PagoCredito).where(PagoCredito.credito_id == credito.id).order_by(PagoCredito.fecha_pago.desc())
+        )
+        pagos = pagos_result.scalars().all()
+        
+        response.append({
+            "id": credito.id,
+            "cliente_id": credito.cliente_id,
+            "venta_id": credito.venta_id,
+            "monto_original": float(credito.monto_original),
+            "monto_pendiente": float(credito.monto_pendiente),
+            "descripcion": credito.descripcion,
+            "fecha_venta": credito.fecha_venta.isoformat() if credito.fecha_venta else None,
+            "pagado": credito.pagado,
+            "creado_en": credito.creado_en.isoformat() if credito.creado_en else None,
+            "pagos": [
+                {
+                    "id": p.id,
+                    "monto": float(p.monto),
+                    "fecha_pago": p.fecha_pago.isoformat() if p.fecha_pago else None,
+                    "observacion": p.observacion
+                }
+                for p in pagos
+            ]
+        })
+    
+    return response
 
-@api_router.put("/creditos/{credito_id}", response_model=CreditoClienteResponse)
-async def actualizar_credito(credito_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+@api_router.post("/creditos/{credito_id}/pagar")
+async def pagar_credito(credito_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+    """Registra un pago parcial o total a un crédito"""
     result = await db.execute(select(CreditoCliente).where(CreditoCliente.id == credito_id))
     credito = result.scalar_one_or_none()
     if not credito:
         raise HTTPException(status_code=404, detail="Crédito no encontrado")
     
-    for key, value in data.items():
-        if hasattr(credito, key) and key != 'id':
-            setattr(credito, key, value)
+    if credito.pagado:
+        raise HTTPException(status_code=400, detail="Este crédito ya está pagado")
+    
+    monto_pago = Decimal(str(data.get('monto', 0)))
+    if monto_pago <= 0:
+        raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0")
+    
+    if monto_pago > credito.monto_pendiente:
+        raise HTTPException(status_code=400, detail=f"El monto excede la deuda pendiente de {float(credito.monto_pendiente):,.0f} Gs")
+    
+    # Create payment record
+    pago = PagoCredito(
+        credito_id=credito_id,
+        monto=monto_pago,
+        observacion=data.get('observacion')
+    )
+    db.add(pago)
+    
+    # Update credito
+    credito.monto_pendiente = credito.monto_pendiente - monto_pago
+    if credito.monto_pendiente <= 0:
+        credito.pagado = True
+        credito.monto_pendiente = Decimal('0')
     
     await db.commit()
     await db.refresh(credito)
-    return credito
+    
+    return {
+        "message": "Pago registrado exitosamente",
+        "credito_id": credito_id,
+        "monto_pagado": float(monto_pago),
+        "monto_pendiente": float(credito.monto_pendiente),
+        "pagado": credito.pagado
+    }
 
 # ==================== PROVEEDORES ====================
 @api_router.post("/proveedores", response_model=ProveedorResponse)
@@ -458,8 +643,23 @@ async def eliminar_proveedor(proveedor_id: int, db: AsyncSession = Depends(get_d
 
 # ==================== DEUDAS PROVEEDORES ====================
 @api_router.post("/proveedores/{proveedor_id}/deudas", response_model=DeudaProveedorResponse)
-async def crear_deuda_proveedor(proveedor_id: int, data: DeudaProveedorCreate, db: AsyncSession = Depends(get_db)):
-    deuda = DeudaProveedor(proveedor_id=proveedor_id, **data.model_dump(exclude={'proveedor_id'}))
+async def crear_deuda_proveedor(proveedor_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+    # Parse fecha_limite if provided as string
+    fecha_limite_parsed = None
+    if data.get('fecha_limite'):
+        try:
+            fecha_limite_parsed = date.fromisoformat(data['fecha_limite'])
+        except (ValueError, TypeError):
+            fecha_limite_parsed = None
+    
+    deuda = DeudaProveedor(
+        proveedor_id=proveedor_id,
+        monto=Decimal(str(data['monto'])),
+        descripcion=data.get('descripcion'),
+        fecha_emision=date.today(),
+        fecha_limite=fecha_limite_parsed,
+        pagado=False
+    )
     db.add(deuda)
     await db.commit()
     await db.refresh(deuda)
@@ -467,7 +667,11 @@ async def crear_deuda_proveedor(proveedor_id: int, data: DeudaProveedorCreate, d
 
 @api_router.get("/proveedores/{proveedor_id}/deudas", response_model=List[DeudaProveedorResponse])
 async def listar_deudas_proveedor(proveedor_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(DeudaProveedor).where(DeudaProveedor.proveedor_id == proveedor_id))
+    result = await db.execute(
+        select(DeudaProveedor)
+        .where(DeudaProveedor.proveedor_id == proveedor_id)
+        .order_by(DeudaProveedor.creado_en.desc())
+    )
     return result.scalars().all()
 
 @api_router.put("/deudas/{deuda_id}/pagar")
@@ -478,6 +682,7 @@ async def pagar_deuda(deuda_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Deuda no encontrada")
     
     deuda.pagado = True
+    deuda.fecha_pago = date.today()
     await db.commit()
     return {"message": "Deuda marcada como pagada"}
 
@@ -495,6 +700,15 @@ async def listar_categorias(empresa_id: int, db: AsyncSession = Depends(get_db))
     result = await db.execute(select(Categoria).where(Categoria.empresa_id == empresa_id))
     return result.scalars().all()
 
+@api_router.delete("/categorias/{categoria_id}")
+async def eliminar_categoria(categoria_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Categoria).where(Categoria.id == categoria_id))
+    categoria = result.scalar_one_or_none()
+    if categoria:
+        await db.delete(categoria)
+        await db.commit()
+    return {"message": "Categoría eliminada"}
+
 # ==================== MARCAS ====================
 @api_router.post("/marcas", response_model=MarcaResponse)
 async def crear_marca(data: MarcaCreate, db: AsyncSession = Depends(get_db)):
@@ -508,6 +722,29 @@ async def crear_marca(data: MarcaCreate, db: AsyncSession = Depends(get_db)):
 async def listar_marcas(empresa_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Marca).where(Marca.empresa_id == empresa_id))
     return result.scalars().all()
+
+@api_router.delete("/marcas/{marca_id}")
+async def eliminar_marca(marca_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Marca).where(Marca.id == marca_id))
+    marca = result.scalar_one_or_none()
+    if marca:
+        await db.delete(marca)
+        await db.commit()
+    return {"message": "Marca eliminada"}
+
+@api_router.put("/marcas/{marca_id}", response_model=MarcaResponse)
+async def actualizar_marca(marca_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Marca).where(Marca.id == marca_id))
+    marca = result.scalar_one_or_none()
+    if not marca:
+        raise HTTPException(status_code=404, detail="Marca no encontrada")
+    
+    if 'nombre' in data:
+        marca.nombre = data['nombre']
+    
+    await db.commit()
+    await db.refresh(marca)
+    return marca
 
 # ==================== PRODUCTOS ====================
 @api_router.post("/productos", response_model=ProductoResponse)
@@ -529,9 +766,8 @@ async def listar_productos(empresa_id: int, db: AsyncSession = Depends(get_db)):
     productos = []
     for row in result.all():
         producto, categoria, marca = row
-        # Get total stock
         stock_result = await db.execute(
-            select(func.coalesce(func.sum(StockActual.cantidad), 0))
+            select(func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0))
             .where(StockActual.producto_id == producto.id)
         )
         stock_total = stock_result.scalar() or 0
@@ -558,7 +794,7 @@ async def obtener_producto(producto_id: int, db: AsyncSession = Depends(get_db))
     
     producto, categoria, marca = row
     stock_result = await db.execute(
-        select(func.coalesce(func.sum(StockActual.cantidad), 0))
+        select(func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0))
         .where(StockActual.producto_id == producto.id)
     )
     stock_total = stock_result.scalar() or 0
@@ -583,7 +819,7 @@ async def buscar_producto_por_codigo(codigo_barra: str, db: AsyncSession = Depen
     
     producto, categoria, marca = row
     stock_result = await db.execute(
-        select(func.coalesce(func.sum(StockActual.cantidad), 0))
+        select(func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0))
         .where(StockActual.producto_id == producto.id)
     )
     stock_total = stock_result.scalar() or 0
@@ -620,17 +856,39 @@ async def eliminar_producto(producto_id: int, db: AsyncSession = Depends(get_db)
     await db.commit()
     return {"message": "Producto desactivado"}
 
+# ==================== UPLOAD IMAGEN PRODUCTO ====================
+@api_router.post("/productos/{producto_id}/imagen")
+async def subir_imagen_producto(producto_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Producto).where(Producto.id == producto_id))
+    producto = result.scalar_one_or_none()
+    if not producto:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    # Generate unique filename
+    ext = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+    filename = f"{uuid.uuid4()}.{ext}"
+    filepath = UPLOADS_DIR / filename
+    
+    # Save file
+    with open(filepath, 'wb') as f:
+        shutil.copyfileobj(file.file, f)
+    
+    # Update product
+    producto.imagen_url = f"/uploads/productos/{filename}"
+    await db.commit()
+    await db.refresh(producto)
+    
+    return {"imagen_url": producto.imagen_url}
+
 # ==================== MATERIAS LABORATORIO ====================
 @api_router.post("/materias-laboratorio", response_model=MateriaLaboratorioResponse)
 async def crear_materia_laboratorio(data: MateriaLaboratorioCreate, db: AsyncSession = Depends(get_db)):
-    # Check unique barcode
     existing = await db.execute(
         select(MateriaLaboratorio).where(MateriaLaboratorio.codigo_barra == data.codigo_barra)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Código de barra ya existe")
     
-    # Check against products
     existing_prod = await db.execute(
         select(Producto).where(Producto.codigo_barra == data.codigo_barra)
     )
@@ -721,7 +979,6 @@ async def listar_stock(empresa_id: int, almacen_id: Optional[int] = None, db: As
 
 @api_router.post("/stock/entrada", response_model=MovimientoStockResponse)
 async def entrada_stock(data: MovimientoStockCreate, db: AsyncSession = Depends(get_db)):
-    # Update stock
     result = await db.execute(
         select(StockActual).where(
             StockActual.producto_id == data.producto_id,
@@ -740,7 +997,6 @@ async def entrada_stock(data: MovimientoStockCreate, db: AsyncSession = Depends(
         )
         db.add(stock)
     
-    # Create movement
     movimiento = MovimientoStock(
         producto_id=data.producto_id,
         almacen_id=data.almacen_id,
@@ -755,9 +1011,8 @@ async def entrada_stock(data: MovimientoStockCreate, db: AsyncSession = Depends(
     await db.refresh(movimiento)
     return movimiento
 
-@api_router.post("/stock/traspaso", response_model=dict)
+@api_router.post("/stock/traspaso")
 async def traspasar_stock(data: TraspasoStockCreate, db: AsyncSession = Depends(get_db)):
-    # Check origin stock
     result_origen = await db.execute(
         select(StockActual).where(
             StockActual.producto_id == data.producto_id,
@@ -769,10 +1024,8 @@ async def traspasar_stock(data: TraspasoStockCreate, db: AsyncSession = Depends(
     if not stock_origen or stock_origen.cantidad < data.cantidad:
         raise HTTPException(status_code=400, detail="Stock insuficiente en almacén origen")
     
-    # Decrease origin
     stock_origen.cantidad -= data.cantidad
     
-    # Increase destination
     result_destino = await db.execute(
         select(StockActual).where(
             StockActual.producto_id == data.producto_id,
@@ -791,7 +1044,6 @@ async def traspasar_stock(data: TraspasoStockCreate, db: AsyncSession = Depends(
         )
         db.add(stock_destino)
     
-    # Create movements
     mov_salida = MovimientoStock(
         producto_id=data.producto_id,
         almacen_id=data.almacen_origen_id,
@@ -810,6 +1062,40 @@ async def traspasar_stock(data: TraspasoStockCreate, db: AsyncSession = Depends(
     await db.commit()
     return {"message": "Traspaso realizado correctamente"}
 
+@api_router.post("/stock/salida")
+async def registrar_salida_stock(data: dict, db: AsyncSession = Depends(get_db)):
+    """Registra una salida/eliminación de stock"""
+    producto_id = data.get('producto_id')
+    almacen_id = data.get('almacen_id')
+    cantidad = data.get('cantidad', 0)
+    motivo = data.get('motivo', 'Salida manual')
+    
+    result = await db.execute(
+        select(StockActual).where(
+            StockActual.producto_id == producto_id,
+            StockActual.almacen_id == almacen_id
+        )
+    )
+    stock = result.scalar_one_or_none()
+    
+    if not stock or stock.cantidad < cantidad:
+        raise HTTPException(status_code=400, detail="Stock insuficiente")
+    
+    stock.cantidad -= cantidad
+    
+    # Register movement
+    movimiento = MovimientoStock(
+        producto_id=producto_id,
+        almacen_id=almacen_id,
+        tipo=TipoMovimientoStock.SALIDA,
+        cantidad=-cantidad,
+        observacion=motivo
+    )
+    db.add(movimiento)
+    
+    await db.commit()
+    return {"message": "Salida registrada correctamente", "stock_restante": stock.cantidad}
+
 @api_router.put("/stock/{stock_id}/alerta", response_model=StockActualResponse)
 async def configurar_alerta_stock(stock_id: int, alerta_minima: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(StockActual).where(StockActual.id == stock_id))
@@ -825,15 +1111,26 @@ async def configurar_alerta_stock(stock_id: int, alerta_minima: int, db: AsyncSe
 # ==================== VENTAS ====================
 @api_router.post("/ventas", response_model=VentaResponse)
 async def crear_venta(data: VentaCreate, db: AsyncSession = Depends(get_db)):
-    # Get client discount
+    # Get client
     cliente_result = await db.execute(select(Cliente).where(Cliente.id == data.cliente_id))
     cliente = cliente_result.scalar_one_or_none()
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     
-    descuento_porcentaje = cliente.descuento_porcentaje or Decimal('0')
+    # Si hay representante, usar sus privilegios (descuento y crédito)
+    cliente_privilegios = cliente
+    if data.representante_cliente_id:
+        rep_result = await db.execute(select(Cliente).where(Cliente.id == data.representante_cliente_id))
+        representante = rep_result.scalar_one_or_none()
+        if representante:
+            cliente_privilegios = representante
     
-    # Calculate totals
+    # Validate cheque payment - usar privilegios del cliente efectivo
+    if data.tipo_pago == TipoPago.CHEQUE and not cliente_privilegios.acepta_cheque:
+        raise HTTPException(status_code=400, detail="Este cliente no tiene habilitado el pago con cheque")
+    
+    descuento_porcentaje = cliente_privilegios.descuento_porcentaje or Decimal('0')
+    
     subtotal = Decimal('0')
     items_data = []
     
@@ -845,10 +1142,9 @@ async def crear_venta(data: VentaCreate, db: AsyncSession = Depends(get_db)):
             'total': item_total
         })
         
-        # Validate stock for products
         if item.producto_id:
             stock_result = await db.execute(
-                select(func.coalesce(func.sum(StockActual.cantidad), 0))
+                select(func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0))
                 .where(StockActual.producto_id == item.producto_id)
             )
             stock_total = stock_result.scalar() or 0
@@ -860,15 +1156,28 @@ async def crear_venta(data: VentaCreate, db: AsyncSession = Depends(get_db)):
                     detail=f"Stock insuficiente para {prod.nombre if prod else 'producto'}. Disponible: {stock_total}"
                 )
     
-    # Apply discount
     descuento = subtotal * descuento_porcentaje / Decimal('100')
     subtotal_con_descuento = subtotal - descuento
-    
-    # Calculate IVA (10% Paraguay)
     iva = subtotal_con_descuento * Decimal('10') / Decimal('110')
     total = subtotal_con_descuento
     
-    # Create sale
+    # Validar crédito si es venta a crédito
+    if data.tipo_pago == TipoPago.CREDITO:
+        # Calcular crédito usado del cliente que tiene los privilegios
+        creditos_result = await db.execute(
+            select(func_sql.coalesce(func_sql.sum(CreditoCliente.monto_pendiente), 0))
+            .where(CreditoCliente.cliente_id == cliente_privilegios.id, CreditoCliente.pagado == False)
+        )
+        credito_usado = creditos_result.scalar() or Decimal('0')
+        limite = cliente_privilegios.limite_credito or Decimal('0')
+        
+        if limite > 0 and (credito_usado + total) > limite:
+            disponible = max(Decimal('0'), limite - credito_usado)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Crédito insuficiente. Límite: {float(limite):,.0f}, Usado: {float(credito_usado):,.0f}, Disponible: {float(disponible):,.0f} Gs"
+            )
+    
     venta = Venta(
         empresa_id=data.empresa_id,
         cliente_id=data.cliente_id,
@@ -884,7 +1193,6 @@ async def crear_venta(data: VentaCreate, db: AsyncSession = Depends(get_db)):
     db.add(venta)
     await db.flush()
     
-    # Create items
     for item_data in items_data:
         venta_item = VentaItem(venta_id=venta.id, **item_data)
         db.add(venta_item)
@@ -905,10 +1213,8 @@ async def confirmar_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
     if venta.estado != EstadoVenta.BORRADOR:
         raise HTTPException(status_code=400, detail="La venta ya fue procesada")
     
-    # Process stock and materias
     for item in venta.items:
         if item.producto_id:
-            # Decrease stock from first available warehouse
             stock_result = await db.execute(
                 select(StockActual)
                 .where(StockActual.producto_id == item.producto_id, StockActual.cantidad > 0)
@@ -925,7 +1231,6 @@ async def confirmar_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
                 stock.cantidad -= a_descontar
                 cantidad_restante -= a_descontar
                 
-                # Create movement
                 mov = MovimientoStock(
                     producto_id=item.producto_id,
                     almacen_id=stock.almacen_id,
@@ -937,7 +1242,6 @@ async def confirmar_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
                 db.add(mov)
         
         elif item.materia_laboratorio_id:
-            # Mark materia as sold
             materia_result = await db.execute(
                 select(MateriaLaboratorio).where(MateriaLaboratorio.id == item.materia_laboratorio_id)
             )
@@ -946,6 +1250,22 @@ async def confirmar_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
                 materia.estado = EstadoMateria.VENDIDO
     
     venta.estado = EstadoVenta.CONFIRMADA
+    
+    # Si es venta a crédito, crear registro de crédito
+    if venta.tipo_pago == TipoPago.CREDITO:
+        # Determinar el cliente que tiene los privilegios de crédito
+        cliente_credito_id = venta.representante_cliente_id or venta.cliente_id
+        
+        credito = CreditoCliente(
+            cliente_id=cliente_credito_id,
+            venta_id=venta.id,
+            monto_original=venta.total,
+            monto_pendiente=venta.total,
+            descripcion=f"Venta #{venta.id}",
+            fecha_venta=date.today()
+        )
+        db.add(credito)
+    
     await db.commit()
     await db.refresh(venta)
     return venta
@@ -955,6 +1275,10 @@ async def listar_ventas(
     empresa_id: int,
     fecha_desde: Optional[str] = None,
     fecha_hasta: Optional[str] = None,
+    cliente_id: Optional[int] = None,
+    usuario_id: Optional[int] = None,
+    monto_min: Optional[float] = None,
+    monto_max: Optional[float] = None,
     db: AsyncSession = Depends(get_db)
 ):
     query = (
@@ -968,16 +1292,44 @@ async def listar_ventas(
         query = query.where(Venta.creado_en >= datetime.fromisoformat(fecha_desde))
     if fecha_hasta:
         query = query.where(Venta.creado_en <= datetime.fromisoformat(fecha_hasta))
+    if cliente_id:
+        query = query.where(Venta.cliente_id == cliente_id)
+    if usuario_id:
+        query = query.where(Venta.usuario_id == usuario_id)
+    if monto_min:
+        query = query.where(Venta.total >= monto_min)
+    if monto_max:
+        query = query.where(Venta.total <= monto_max)
     
     result = await db.execute(query)
     ventas = []
     for row in result.all():
         venta, cliente = row
-        # Get items
         items_result = await db.execute(
             select(VentaItem).where(VentaItem.venta_id == venta.id)
         )
-        items = [VentaItemResponse.model_validate(i) for i in items_result.scalars().all()]
+        raw_items = items_result.scalars().all()
+        
+        # Enrich items with product/materia names
+        items = []
+        for item in raw_items:
+            item_dict = VentaItemResponse.model_validate(item).model_dump()
+            
+            # Get product name
+            if item.producto_id:
+                prod_result = await db.execute(select(Producto).where(Producto.id == item.producto_id))
+                producto = prod_result.scalar_one_or_none()
+                if producto:
+                    item_dict['descripcion'] = producto.nombre
+            
+            # Get materia name
+            elif item.materia_laboratorio_id:
+                mat_result = await db.execute(select(MateriaLaboratorio).where(MateriaLaboratorio.id == item.materia_laboratorio_id))
+                materia = mat_result.scalar_one_or_none()
+                if materia:
+                    item_dict['descripcion'] = f"{materia.nombre} - {materia.descripcion or ''}"
+            
+            items.append(item_dict)
         
         venta_dict = VentaResponse.model_validate(venta).model_dump()
         venta_dict['items'] = items
@@ -1022,6 +1374,160 @@ async def anular_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
     await db.refresh(venta)
     return venta
 
+# ==================== BOLETA Y FACTURA ====================
+@api_router.get("/ventas/{venta_id}/boleta")
+async def generar_boleta(venta_id: int, db: AsyncSession = Depends(get_db)):
+    """Generate boleta data for printing"""
+    result = await db.execute(
+        select(Venta, Cliente, Usuario, Empresa)
+        .join(Cliente, Venta.cliente_id == Cliente.id)
+        .join(Usuario, Venta.usuario_id == Usuario.id)
+        .join(Empresa, Venta.empresa_id == Empresa.id)
+        .where(Venta.id == venta_id)
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+    
+    venta, cliente, usuario, empresa = row
+    
+    items_result = await db.execute(
+        select(VentaItem, Producto, MateriaLaboratorio)
+        .outerjoin(Producto, VentaItem.producto_id == Producto.id)
+        .outerjoin(MateriaLaboratorio, VentaItem.materia_laboratorio_id == MateriaLaboratorio.id)
+        .where(VentaItem.venta_id == venta_id)
+    )
+    
+    items = []
+    for item_row in items_result.all():
+        item, producto, materia = item_row
+        
+        if producto:
+            codigo = producto.codigo_barra or str(producto.id)
+            descripcion = producto.nombre
+        elif materia:
+            codigo = f"LAB-{materia.id}"
+            descripcion = f"{materia.nombre} - {materia.descripcion or ''}"
+        else:
+            codigo = 'N/A'
+            descripcion = 'Item'
+        
+        items.append({
+            'codigo': codigo,
+            'cantidad': float(item.cantidad),
+            'descripcion': descripcion,
+            'iva': 10,
+            'precio': float(item.precio_unitario),
+            'total': float(item.total)
+        })
+    
+    return {
+        'tipo': 'BOLETA',
+        'numero': venta.id,
+        'fecha': venta.creado_en.strftime('%d/%m/%Y %I:%M %p'),
+        'tipo_pago': venta.tipo_pago.value if venta.tipo_pago else 'CONTADO',
+        'empresa': {
+            'nombre': empresa.nombre,
+            'ruc': empresa.ruc,
+            'telefono': empresa.telefono,
+            'direccion': empresa.direccion
+        },
+        'cliente': {
+            'nombre': f"{cliente.nombre} {cliente.apellido or ''}".strip(),
+            'ruc': cliente.ruc or '0',
+            'direccion': cliente.direccion or '0',
+            'telefono': cliente.telefono or '0'
+        },
+        'vendedor': f"{usuario.nombre} {usuario.apellido or ''}".strip(),
+        'items': items,
+        'subtotal': float(venta.total + venta.descuento),
+        'descuento': float(venta.descuento),
+        'iva': float(venta.iva),
+        'total': float(venta.total),
+        'total_letras': numero_a_letras(int(venta.total)) + ' Guaraníes'
+    }
+
+@api_router.get("/ventas/{venta_id}/factura")
+async def generar_factura(venta_id: int, db: AsyncSession = Depends(get_db)):
+    """Generate factura data for printing"""
+    result = await db.execute(
+        select(Venta, Cliente, Usuario, Empresa)
+        .join(Cliente, Venta.cliente_id == Cliente.id)
+        .join(Usuario, Venta.usuario_id == Usuario.id)
+        .join(Empresa, Venta.empresa_id == Empresa.id)
+        .where(Venta.id == venta_id)
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+    
+    venta, cliente, usuario, empresa = row
+    
+    # Check if client has RUC for factura
+    if not cliente.ruc:
+        raise HTTPException(status_code=400, detail="El cliente no tiene RUC para emitir factura")
+    
+    items_result = await db.execute(
+        select(VentaItem, Producto, MateriaLaboratorio)
+        .outerjoin(Producto, VentaItem.producto_id == Producto.id)
+        .outerjoin(MateriaLaboratorio, VentaItem.materia_laboratorio_id == MateriaLaboratorio.id)
+        .where(VentaItem.venta_id == venta_id)
+    )
+    
+    items = []
+    for item_row in items_result.all():
+        item, producto, materia = item_row
+        
+        if producto:
+            descripcion = producto.nombre
+        elif materia:
+            descripcion = f"{materia.nombre} - {materia.descripcion or ''}"
+        else:
+            descripcion = 'Item'
+        
+        items.append({
+            'cantidad': float(item.cantidad),
+            'descripcion': descripcion,
+            'precio_unitario': float(item.precio_unitario),
+            'exenta': 0,
+            'iva_5': 0,
+            'iva_10': float(item.total)
+        })
+    
+    # Calculate IVA breakdown
+    base_imponible = float(venta.total) / 1.10
+    iva_10 = float(venta.total) - base_imponible
+    
+    return {
+        'tipo': 'FACTURA',
+        'numero': f"{venta.id:07d}",
+        'fecha': venta.creado_en.strftime('%d de %B de %Y'),
+        'condicion': venta.tipo_pago.value if venta.tipo_pago else 'CONTADO',
+        'empresa': {
+            'nombre': empresa.nombre,
+            'ruc': empresa.ruc,
+            'telefono': empresa.telefono,
+            'direccion': empresa.direccion
+        },
+        'cliente': {
+            'nombre': f"{cliente.nombre} {cliente.apellido or ''}".strip(),
+            'ruc': cliente.ruc,
+            'direccion': cliente.direccion or '',
+            'telefono': cliente.telefono or ''
+        },
+        'items': items,
+        'subtotal_exenta': 0,
+        'subtotal_iva_5': 0,
+        'subtotal_iva_10': float(venta.total),
+        'total': float(venta.total),
+        'total_letras': numero_a_letras(int(venta.total)),
+        'liquidacion_iva': {
+            'iva_5': 0,
+            'iva_10': round(iva_10, 0),
+            'total_iva': round(iva_10, 0)
+        }
+    }
+
 # ==================== FUNCIONARIOS ====================
 @api_router.post("/funcionarios", response_model=FuncionarioResponse)
 async def crear_funcionario(data: FuncionarioCreate, db: AsyncSession = Depends(get_db)):
@@ -1031,12 +1537,36 @@ async def crear_funcionario(data: FuncionarioCreate, db: AsyncSession = Depends(
     await db.refresh(funcionario)
     return funcionario
 
-@api_router.get("/funcionarios", response_model=List[FuncionarioResponse])
+@api_router.get("/funcionarios")
 async def listar_funcionarios(empresa_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Funcionario).where(Funcionario.empresa_id == empresa_id, Funcionario.activo == True)
+        .order_by(Funcionario.nombre)
     )
-    return result.scalars().all()
+    funcionarios = result.scalars().all()
+    
+    # Get current month adelantos for each funcionario
+    response = []
+    
+    for funcionario in funcionarios:
+        # Calculate total adelantos this month
+        adelantos_result = await db.execute(
+            select(func_sql.coalesce(func_sql.sum(AdelantoSalario.monto), 0))
+            .where(
+                AdelantoSalario.funcionario_id == funcionario.id,
+                func_sql.extract('year', AdelantoSalario.creado_en) == date.today().year,
+                func_sql.extract('month', AdelantoSalario.creado_en) == date.today().month
+            )
+        )
+        total_adelantos = adelantos_result.scalar() or Decimal('0')
+        salario_restante = (funcionario.salario_base or Decimal('0')) - total_adelantos
+        
+        func_dict = FuncionarioResponse.model_validate(funcionario).model_dump()
+        func_dict['total_adelantos_mes'] = float(total_adelantos)
+        func_dict['salario_restante'] = float(salario_restante)
+        response.append(func_dict)
+    
+    return response
 
 @api_router.get("/funcionarios/{funcionario_id}", response_model=FuncionarioResponse)
 async def obtener_funcionario(funcionario_id: int, db: AsyncSession = Depends(get_db)):
@@ -1074,8 +1604,21 @@ async def eliminar_funcionario(funcionario_id: int, db: AsyncSession = Depends(g
 
 # ==================== ADELANTOS ====================
 @api_router.post("/funcionarios/{funcionario_id}/adelantos", response_model=AdelantoSalarioResponse)
-async def crear_adelanto(funcionario_id: int, data: AdelantoSalarioCreate, db: AsyncSession = Depends(get_db)):
-    adelanto = AdelantoSalario(funcionario_id=funcionario_id, monto=data.monto)
+async def crear_adelanto(funcionario_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+    # Verify funcionario exists
+    func_result = await db.execute(select(Funcionario).where(Funcionario.id == funcionario_id))
+    funcionario = func_result.scalar_one_or_none()
+    if not funcionario:
+        raise HTTPException(status_code=404, detail="Funcionario no encontrado")
+    
+    monto = data.get('monto')
+    if not monto:
+        raise HTTPException(status_code=400, detail="El monto es requerido")
+    
+    adelanto = AdelantoSalario(
+        funcionario_id=funcionario_id,
+        monto=Decimal(str(monto))
+    )
     db.add(adelanto)
     await db.commit()
     await db.refresh(adelanto)
@@ -1086,7 +1629,6 @@ async def listar_adelantos(funcionario_id: int, periodo: Optional[str] = None, d
     query = select(AdelantoSalario).where(AdelantoSalario.funcionario_id == funcionario_id)
     
     if periodo:
-        # Filter by month
         year, month = map(int, periodo.split('-'))
         start_date = datetime(year, month, 1, tzinfo=timezone.utc)
         if month == 12:
@@ -1100,26 +1642,6 @@ async def listar_adelantos(funcionario_id: int, periodo: Optional[str] = None, d
     
     result = await db.execute(query.order_by(AdelantoSalario.creado_en.desc()))
     return result.scalars().all()
-
-# ==================== CICLOS SALARIO ====================
-@api_router.post("/funcionarios/{funcionario_id}/ciclos", response_model=CicloSalarioResponse)
-async def crear_ciclo_salario(funcionario_id: int, data: CicloSalarioCreate, db: AsyncSession = Depends(get_db)):
-    ciclo = CicloSalario(funcionario_id=funcionario_id, **data.model_dump(exclude={'funcionario_id'}))
-    db.add(ciclo)
-    await db.commit()
-    await db.refresh(ciclo)
-    return ciclo
-
-@api_router.put("/ciclos/{ciclo_id}/pagar")
-async def pagar_ciclo(ciclo_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(CicloSalario).where(CicloSalario.id == ciclo_id))
-    ciclo = result.scalar_one_or_none()
-    if not ciclo:
-        raise HTTPException(status_code=404, detail="Ciclo no encontrado")
-    
-    ciclo.pagado = True
-    await db.commit()
-    return {"message": "Ciclo marcado como pagado"}
 
 # ==================== VEHICULOS ====================
 @api_router.post("/vehiculos", response_model=VehiculoResponse)
@@ -1268,7 +1790,6 @@ async def obtener_preferencias(usuario_id: int, db: AsyncSession = Depends(get_d
     )
     pref = result.scalar_one_or_none()
     if not pref:
-        # Return default preferences
         return PreferenciaUsuarioResponse(
             id=0,
             usuario_id=usuario_id,
@@ -1281,9 +1802,19 @@ async def obtener_preferencias(usuario_id: int, db: AsyncSession = Depends(get_d
 @api_router.get("/cotizacion", response_model=CotizacionDivisa)
 async def obtener_cotizacion():
     """Get USD/PYG and BRL/PYG exchange rates"""
+    global MANUAL_CURRENCY_RATES
+    
+    # If manual mode is set, return manual rates
+    if MANUAL_CURRENCY_RATES['manual'] and MANUAL_CURRENCY_RATES['usd_pyg']:
+        return CotizacionDivisa(
+            usd_pyg=Decimal(str(MANUAL_CURRENCY_RATES['usd_pyg'])),
+            brl_pyg=Decimal(str(MANUAL_CURRENCY_RATES['brl_pyg'])),
+            manual=True,
+            fecha_actualizacion=MANUAL_CURRENCY_RATES['updated_at'] or datetime.now(timezone.utc)
+        )
+    
     try:
         async with httpx.AsyncClient() as client:
-            # Using exchangerate-api free tier
             response = await client.get(
                 "https://api.exchangerate-api.com/v4/latest/USD",
                 timeout=10.0
@@ -1302,13 +1833,39 @@ async def obtener_cotizacion():
             )
     except Exception as e:
         logger.error(f"Error fetching exchange rates: {e}")
-        # Return default values
+        # Return default or cached values
+        if MANUAL_CURRENCY_RATES['usd_pyg']:
+            return CotizacionDivisa(
+                usd_pyg=Decimal(str(MANUAL_CURRENCY_RATES['usd_pyg'])),
+                brl_pyg=Decimal(str(MANUAL_CURRENCY_RATES['brl_pyg'])),
+                manual=True,
+                fecha_actualizacion=MANUAL_CURRENCY_RATES['updated_at'] or datetime.now(timezone.utc)
+            )
         return CotizacionDivisa(
             usd_pyg=Decimal('7500'),
             brl_pyg=Decimal('1500'),
             manual=True,
             fecha_actualizacion=datetime.now(timezone.utc)
         )
+
+@api_router.post("/cotizacion/manual")
+async def establecer_cotizacion_manual(data: dict):
+    """Set manual exchange rates"""
+    global MANUAL_CURRENCY_RATES
+    
+    MANUAL_CURRENCY_RATES['usd_pyg'] = data.get('usd_pyg')
+    MANUAL_CURRENCY_RATES['brl_pyg'] = data.get('brl_pyg')
+    MANUAL_CURRENCY_RATES['manual'] = data.get('manual', True)
+    MANUAL_CURRENCY_RATES['updated_at'] = datetime.now(timezone.utc)
+    
+    return {"message": "Cotización manual establecida", "data": MANUAL_CURRENCY_RATES}
+
+@api_router.post("/cotizacion/auto")
+async def activar_cotizacion_automatica():
+    """Switch back to automatic exchange rates"""
+    global MANUAL_CURRENCY_RATES
+    MANUAL_CURRENCY_RATES['manual'] = False
+    return {"message": "Cotización automática activada"}
 
 # ==================== DASHBOARD ====================
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
@@ -1317,11 +1874,10 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
     today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
     today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
     
-    # Sales today
     ventas_hoy_result = await db.execute(
         select(
-            func.coalesce(func.sum(Venta.total), 0),
-            func.count(Venta.id)
+            func_sql.coalesce(func_sql.sum(Venta.total), 0),
+            func_sql.count(Venta.id)
         )
         .where(
             Venta.empresa_id == empresa_id,
@@ -1334,9 +1890,8 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
     ventas_hoy = ventas_row[0] if ventas_row else Decimal('0')
     cantidad_ventas = ventas_row[1] if ventas_row else 0
     
-    # Pending deliveries
     deliverys_result = await db.execute(
-        select(func.count(Entrega.id))
+        select(func_sql.count(Entrega.id))
         .join(Venta, Entrega.venta_id == Venta.id)
         .where(
             Venta.empresa_id == empresa_id,
@@ -1345,9 +1900,8 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
     )
     deliverys_pendientes = deliverys_result.scalar() or 0
     
-    # Products with low stock
     stock_bajo_result = await db.execute(
-        select(Producto.id, Producto.nombre, func.sum(StockActual.cantidad), StockActual.alerta_minima)
+        select(Producto.id, Producto.nombre, func_sql.sum(StockActual.cantidad), StockActual.alerta_minima)
         .join(StockActual, Producto.id == StockActual.producto_id)
         .where(
             Producto.empresa_id == empresa_id,
@@ -1355,7 +1909,7 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
             StockActual.alerta_minima.isnot(None)
         )
         .group_by(Producto.id, Producto.nombre, StockActual.alerta_minima)
-        .having(func.sum(StockActual.cantidad) <= StockActual.alerta_minima)
+        .having(func_sql.sum(StockActual.cantidad) <= StockActual.alerta_minima)
     )
     productos_bajo_stock = [
         StockBajo(
@@ -1367,12 +1921,11 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
         for row in stock_bajo_result.all()
     ]
     
-    # Sales by hour
     ventas_por_hora_result = await db.execute(
         select(
-            func.extract('hour', Venta.creado_en).label('hora'),
-            func.count(Venta.id),
-            func.coalesce(func.sum(Venta.total), 0)
+            func_sql.extract('hour', Venta.creado_en).label('hora'),
+            func_sql.count(Venta.id),
+            func_sql.coalesce(func_sql.sum(Venta.total), 0)
         )
         .where(
             Venta.empresa_id == empresa_id,
@@ -1380,7 +1933,7 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
             Venta.creado_en >= today_start,
             Venta.creado_en <= today_end
         )
-        .group_by(func.extract('hour', Venta.creado_en))
+        .group_by(func_sql.extract('hour', Venta.creado_en))
         .order_by('hora')
     )
     ventas_por_hora = [
@@ -1388,13 +1941,12 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
         for row in ventas_por_hora_result.all()
     ]
     
-    # Top stock products
     alto_stock_result = await db.execute(
-        select(Producto.id, Producto.nombre, func.sum(StockActual.cantidad))
+        select(Producto.id, Producto.nombre, func_sql.sum(StockActual.cantidad))
         .join(StockActual, Producto.id == StockActual.producto_id)
         .where(Producto.empresa_id == empresa_id, Producto.activo == True)
         .group_by(Producto.id, Producto.nombre)
-        .order_by(func.sum(StockActual.cantidad).desc())
+        .order_by(func_sql.sum(StockActual.cantidad).desc())
         .limit(5)
     )
     productos_alto_stock = [
@@ -1407,7 +1959,7 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
         cantidad_ventas_hoy=cantidad_ventas,
         deliverys_pendientes=deliverys_pendientes,
         productos_stock_bajo=len(productos_bajo_stock),
-        creditos_por_vencer=0,  # TODO: Implement
+        creditos_por_vencer=0,
         ventas_por_hora=ventas_por_hora,
         productos_bajo_stock=productos_bajo_stock,
         productos_alto_stock=productos_alto_stock
@@ -1419,7 +1971,6 @@ async def obtener_alertas(empresa_id: int, db: AsyncSession = Depends(get_db)):
     alertas = []
     today = date.today()
     
-    # Products expiring soon (30 days)
     fecha_limite = today + timedelta(days=30)
     productos_vencimiento = await db.execute(
         select(Producto)
@@ -1440,7 +1991,6 @@ async def obtener_alertas(empresa_id: int, db: AsyncSession = Depends(get_db)):
             referencia_id=prod.id
         ))
     
-    # Vehicles with expiring documents
     vehiculos_result = await db.execute(
         select(Vehiculo)
         .where(
@@ -1477,9 +2027,8 @@ async def obtener_alertas(empresa_id: int, db: AsyncSession = Depends(get_db)):
                 referencia_id=veh.id
             ))
     
-    # Low stock alerts
     stock_bajo = await db.execute(
-        select(Producto.id, Producto.nombre, func.sum(StockActual.cantidad), StockActual.alerta_minima)
+        select(Producto.id, Producto.nombre, func_sql.sum(StockActual.cantidad), StockActual.alerta_minima)
         .join(StockActual, Producto.id == StockActual.producto_id)
         .where(
             Producto.empresa_id == empresa_id,
@@ -1487,7 +2036,7 @@ async def obtener_alertas(empresa_id: int, db: AsyncSession = Depends(get_db)):
             StockActual.alerta_minima.isnot(None)
         )
         .group_by(Producto.id, Producto.nombre, StockActual.alerta_minima)
-        .having(func.sum(StockActual.cantidad) <= StockActual.alerta_minima)
+        .having(func_sql.sum(StockActual.cantidad) <= StockActual.alerta_minima)
     )
     for row in stock_bajo.all():
         alertas.append(Alerta(
@@ -1499,16 +2048,402 @@ async def obtener_alertas(empresa_id: int, db: AsyncSession = Depends(get_db)):
     
     return alertas
 
+# ==================== REPORTES PDF ====================
+def crear_pdf_reporte(titulo, subtitulo, columnas, datos, totales=None):
+    """Genera un PDF con tabla de datos"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Title
+    title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=18, spaceAfter=6, alignment=TA_CENTER)
+    elements.append(Paragraph(titulo, title_style))
+    
+    # Subtitle
+    subtitle_style = ParagraphStyle('CustomSubtitle', parent=styles['Normal'], fontSize=10, spaceAfter=20, alignment=TA_CENTER, textColor=colors.grey)
+    elements.append(Paragraph(subtitulo, subtitle_style))
+    
+    # Table
+    table_data = [columnas] + datos
+    
+    if totales:
+        table_data.append(totales)
+    
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0044CC')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('ALIGN', (-1, 1), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F5F5F5')]),
+    ]))
+    
+    if totales:
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E0E0E0')),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ]))
+    
+    elements.append(table)
+    
+    # Footer
+    elements.append(Spacer(1, 20))
+    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.grey, alignment=TA_CENTER)
+    elements.append(Paragraph(f"Generado el {datetime.now().strftime('%d/%m/%Y %H:%M')} - Luz Brill ERP", footer_style))
+    
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+@api_router.get("/reportes/ventas")
+async def reporte_ventas(
+    empresa_id: int,
+    fecha_desde: str,
+    fecha_hasta: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Genera reporte PDF de ventas por rango de fechas"""
+    fecha_ini = datetime.fromisoformat(fecha_desde)
+    fecha_fin = datetime.fromisoformat(fecha_hasta) + timedelta(days=1)
+    
+    result = await db.execute(
+        select(Venta, Cliente)
+        .join(Cliente, Venta.cliente_id == Cliente.id)
+        .where(
+            Venta.empresa_id == empresa_id,
+            Venta.creado_en >= fecha_ini,
+            Venta.creado_en < fecha_fin,
+            Venta.estado == EstadoVenta.CONFIRMADA
+        )
+        .order_by(Venta.creado_en)
+    )
+    ventas = result.all()
+    
+    columnas = ['ID', 'Fecha', 'Cliente', 'Tipo Pago', 'Total']
+    datos = []
+    total_general = Decimal('0')
+    
+    for venta, cliente in ventas:
+        total_general += venta.total
+        datos.append([
+            str(venta.id),
+            venta.creado_en.strftime('%d/%m/%Y'),
+            f"{cliente.nombre} {cliente.apellido or ''}".strip()[:25],
+            venta.tipo_pago.value if venta.tipo_pago else 'EFECTIVO',
+            f"{float(venta.total):,.0f}"
+        ])
+    
+    totales = ['', '', '', 'TOTAL:', f"{float(total_general):,.0f}"]
+    
+    pdf_bytes = crear_pdf_reporte(
+        "Reporte de Ventas",
+        f"Período: {fecha_desde} al {fecha_hasta} | Total ventas: {len(datos)}",
+        columnas,
+        datos,
+        totales
+    )
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=reporte_ventas_{fecha_desde}_{fecha_hasta}.pdf"}
+    )
+
+@api_router.get("/reportes/stock")
+async def reporte_stock(empresa_id: int, db: AsyncSession = Depends(get_db)):
+    """Genera reporte PDF de stock actual"""
+    result = await db.execute(
+        select(Producto, func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0).label('stock_total'))
+        .outerjoin(StockActual, Producto.id == StockActual.producto_id)
+        .where(Producto.empresa_id == empresa_id, Producto.activo == True)
+        .group_by(Producto.id)
+        .order_by(Producto.nombre)
+    )
+    productos = result.all()
+    
+    columnas = ['Código', 'Producto', 'Stock', 'Precio']
+    datos = []
+    
+    for producto, stock in productos:
+        # Check if stock is low (less than 10 units)
+        estado = "⚠️" if stock < 10 else ""
+        datos.append([
+            producto.codigo_barra or '-',
+            f"{producto.nombre[:30]}{estado}",
+            str(int(stock)),
+            f"{float(producto.precio_venta):,.0f}"
+        ])
+    
+    pdf_bytes = crear_pdf_reporte(
+        "Reporte de Stock Actual",
+        f"Fecha: {date.today().strftime('%d/%m/%Y')} | Total productos: {len(datos)}",
+        columnas,
+        datos
+    )
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=reporte_stock_{date.today().isoformat()}.pdf"}
+    )
+
+@api_router.get("/reportes/deudas-proveedores")
+async def reporte_deudas_proveedores(empresa_id: int, db: AsyncSession = Depends(get_db)):
+    """Genera reporte PDF de deudas a proveedores"""
+    result = await db.execute(
+        select(DeudaProveedor, Proveedor)
+        .join(Proveedor, DeudaProveedor.proveedor_id == Proveedor.id)
+        .where(Proveedor.empresa_id == empresa_id, DeudaProveedor.pagado == False)
+        .order_by(DeudaProveedor.fecha_limite)
+    )
+    deudas = result.all()
+    
+    columnas = ['Proveedor', 'Descripción', 'Monto', 'Emisión', 'Vencimiento']
+    datos = []
+    total_deuda = Decimal('0')
+    
+    for deuda, proveedor in deudas:
+        total_deuda += deuda.monto
+        vencido = "⚠️" if deuda.fecha_limite and deuda.fecha_limite < date.today() else ""
+        datos.append([
+            proveedor.nombre[:25],
+            (deuda.descripcion or '-')[:30],
+            f"{float(deuda.monto):,.0f}",
+            deuda.fecha_emision.strftime('%d/%m/%Y') if deuda.fecha_emision else '-',
+            f"{deuda.fecha_limite.strftime('%d/%m/%Y') if deuda.fecha_limite else '-'}{vencido}"
+        ])
+    
+    totales = ['', '', f"{float(total_deuda):,.0f}", '', '']
+    
+    pdf_bytes = crear_pdf_reporte(
+        "Reporte de Deudas a Proveedores",
+        f"Fecha: {date.today().strftime('%d/%m/%Y')} | Deudas pendientes: {len(datos)}",
+        columnas,
+        datos,
+        totales
+    )
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=reporte_deudas_proveedores_{date.today().isoformat()}.pdf"}
+    )
+
+@api_router.get("/reportes/creditos-clientes")
+async def reporte_creditos_clientes(empresa_id: int, db: AsyncSession = Depends(get_db)):
+    """Genera reporte PDF de créditos de clientes pendientes"""
+    result = await db.execute(
+        select(CreditoCliente, Cliente)
+        .join(Cliente, CreditoCliente.cliente_id == Cliente.id)
+        .where(Cliente.empresa_id == empresa_id, CreditoCliente.pagado == False)
+        .order_by(CreditoCliente.fecha_venta)
+    )
+    creditos = result.all()
+    
+    columnas = ['Cliente', 'Venta #', 'Original', 'Pendiente', 'Fecha']
+    datos = []
+    total_pendiente = Decimal('0')
+    
+    for credito, cliente in creditos:
+        total_pendiente += credito.monto_pendiente
+        datos.append([
+            f"{cliente.nombre} {cliente.apellido or ''}".strip()[:25],
+            str(credito.venta_id or '-'),
+            f"{float(credito.monto_original):,.0f}",
+            f"{float(credito.monto_pendiente):,.0f}",
+            credito.fecha_venta.strftime('%d/%m/%Y') if credito.fecha_venta else '-'
+        ])
+    
+    totales = ['', '', 'TOTAL:', f"{float(total_pendiente):,.0f}", '']
+    
+    pdf_bytes = crear_pdf_reporte(
+        "Reporte de Créditos de Clientes",
+        f"Fecha: {date.today().strftime('%d/%m/%Y')} | Créditos pendientes: {len(datos)}",
+        columnas,
+        datos,
+        totales
+    )
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=reporte_creditos_clientes_{date.today().isoformat()}.pdf"}
+    )
+
+# ==================== CICLOS DE SALARIO ====================
+@api_router.post("/ciclos-salario/generar")
+async def generar_ciclo_salario(empresa_id: int, mes: str, db: AsyncSession = Depends(get_db)):
+    """Genera ciclos de salario para todos los funcionarios activos del mes especificado (formato: YYYY-MM)"""
+    # Check if cycles already exist for this month
+    existing = await db.execute(
+        select(CicloSalario).where(CicloSalario.periodo == mes)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"Ya existen ciclos de salario para {mes}")
+    
+    # Get all active funcionarios
+    func_result = await db.execute(
+        select(Funcionario).where(Funcionario.empresa_id == empresa_id, Funcionario.activo == True)
+    )
+    funcionarios = func_result.scalars().all()
+    
+    if not funcionarios:
+        raise HTTPException(status_code=404, detail="No hay funcionarios activos")
+    
+    # Parse month
+    año, mes_num = mes.split('-')
+    fecha_inicio = date(int(año), int(mes_num), 1)
+    if int(mes_num) == 12:
+        fecha_fin = date(int(año) + 1, 1, 1) - timedelta(days=1)
+    else:
+        fecha_fin = date(int(año), int(mes_num) + 1, 1) - timedelta(days=1)
+    
+    ciclos_creados = []
+    for funcionario in funcionarios:
+        # Calculate adelantos for this funcionario in previous month
+        # (Adelantos del mes anterior se descuentan del salario actual)
+        mes_anterior = fecha_inicio - timedelta(days=1)
+        periodo_anterior = mes_anterior.strftime('%Y-%m')
+        
+        adelantos_result = await db.execute(
+            select(func_sql.coalesce(func_sql.sum(AdelantoSalario.monto), 0))
+            .where(
+                AdelantoSalario.funcionario_id == funcionario.id,
+                func_sql.extract('year', AdelantoSalario.creado_en) == mes_anterior.year,
+                func_sql.extract('month', AdelantoSalario.creado_en) == mes_anterior.month
+            )
+        )
+        total_adelantos = adelantos_result.scalar() or Decimal('0')
+        
+        salario_neto = (funcionario.salario_base or Decimal('0')) - total_adelantos
+        
+        ciclo = CicloSalario(
+            funcionario_id=funcionario.id,
+            periodo=mes,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            salario_base=funcionario.salario_base or Decimal('0'),
+            descuentos=total_adelantos,
+            salario_neto=salario_neto,
+            pagado=False
+        )
+        db.add(ciclo)
+        ciclos_creados.append({
+            "funcionario": f"{funcionario.nombre} {funcionario.apellido or ''}",
+            "salario_base": float(funcionario.salario_base or 0),
+            "adelantos": float(total_adelantos),
+            "salario_neto": float(salario_neto)
+        })
+    
+    await db.commit()
+    
+    return {
+        "message": f"Ciclos de salario generados para {mes}",
+        "ciclos_creados": len(ciclos_creados),
+        "detalle": ciclos_creados
+    }
+
+@api_router.get("/ciclos-salario")
+async def listar_ciclos_salario(empresa_id: int, periodo: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """Lista los ciclos de salario"""
+    query = (
+        select(CicloSalario, Funcionario)
+        .join(Funcionario, CicloSalario.funcionario_id == Funcionario.id)
+        .where(Funcionario.empresa_id == empresa_id)
+        .order_by(CicloSalario.periodo.desc(), Funcionario.nombre)
+    )
+    
+    if periodo:
+        query = query.where(CicloSalario.periodo == periodo)
+    
+    result = await db.execute(query)
+    ciclos = result.all()
+    
+    return [
+        {
+            "id": ciclo.id,
+            "funcionario_id": ciclo.funcionario_id,
+            "funcionario_nombre": f"{func.nombre} {func.apellido or ''}".strip(),
+            "periodo": ciclo.periodo,
+            "fecha_inicio": ciclo.fecha_inicio.isoformat() if ciclo.fecha_inicio else None,
+            "fecha_fin": ciclo.fecha_fin.isoformat() if ciclo.fecha_fin else None,
+            "salario_base": float(ciclo.salario_base),
+            "descuentos": float(ciclo.descuentos),
+            "salario_neto": float(ciclo.salario_neto),
+            "pagado": ciclo.pagado,
+            "fecha_pago": ciclo.fecha_pago.isoformat() if ciclo.fecha_pago else None
+        }
+        for ciclo, func in ciclos
+    ]
+
+@api_router.post("/ciclos-salario/{ciclo_id}/pagar")
+async def pagar_ciclo_salario(ciclo_id: int, db: AsyncSession = Depends(get_db)):
+    """Marca un ciclo de salario como pagado"""
+    result = await db.execute(select(CicloSalario).where(CicloSalario.id == ciclo_id))
+    ciclo = result.scalar_one_or_none()
+    if not ciclo:
+        raise HTTPException(status_code=404, detail="Ciclo no encontrado")
+    
+    if ciclo.pagado:
+        raise HTTPException(status_code=400, detail="Este ciclo ya fue pagado")
+    
+    ciclo.pagado = True
+    ciclo.fecha_pago = datetime.now(timezone.utc)
+    
+    await db.commit()
+    return {"message": "Salario marcado como pagado", "ciclo_id": ciclo_id}
+
+@api_router.get("/ciclos-salario/alertas")
+async def alertas_salarios_pendientes(empresa_id: int, db: AsyncSession = Depends(get_db)):
+    """Obtiene alertas de salarios pendientes de pago"""
+    # Get current period
+    hoy = date.today()
+    periodo_actual = hoy.strftime('%Y-%m')
+    
+    # Get unpaid cycles
+    result = await db.execute(
+        select(CicloSalario, Funcionario)
+        .join(Funcionario, CicloSalario.funcionario_id == Funcionario.id)
+        .where(
+            Funcionario.empresa_id == empresa_id,
+            CicloSalario.pagado == False
+        )
+        .order_by(CicloSalario.periodo)
+    )
+    ciclos_pendientes = result.all()
+    
+    alertas = []
+    for ciclo, func in ciclos_pendientes:
+        alertas.append({
+            "tipo": "salario_pendiente",
+            "mensaje": f"Salario pendiente: {func.nombre} {func.apellido or ''} - {ciclo.periodo}",
+            "monto": float(ciclo.salario_neto),
+            "funcionario_id": func.id,
+            "ciclo_id": ciclo.id,
+            "periodo": ciclo.periodo,
+            "urgente": ciclo.periodo < periodo_actual
+        })
+    
+    return alertas
+
 # ==================== SEED DATA ====================
 @api_router.post("/seed")
 async def seed_data(db: AsyncSession = Depends(get_db)):
     """Create initial data for testing"""
-    # Check if already seeded
     existing = await db.execute(select(Empresa))
     if existing.scalar_one_or_none():
         return {"message": "Data already seeded"}
     
-    # Create default empresa
     empresa = Empresa(
         nombre="Luz Brill S.A.",
         ruc="80012345-6",
@@ -1519,7 +2454,6 @@ async def seed_data(db: AsyncSession = Depends(get_db)):
     db.add(empresa)
     await db.flush()
     
-    # Create admin user
     admin = Usuario(
         empresa_id=empresa.id,
         email="admin@luzbrill.com",
@@ -1529,21 +2463,70 @@ async def seed_data(db: AsyncSession = Depends(get_db)):
     )
     db.add(admin)
     
-    # Create permisos
+    # Create comprehensive permissions
     permisos_data = [
+        # Ventas
         ("ventas.crear", "Crear ventas"),
         ("ventas.ver", "Ver ventas"),
         ("ventas.anular", "Anular ventas"),
+        ("ventas.modificar_precio", "Modificar precios en ventas"),
+        ("ventas.aplicar_descuento", "Aplicar descuentos"),
+        ("ventas.imprimir_boleta", "Imprimir boletas"),
+        ("ventas.imprimir_factura", "Imprimir facturas"),
+        # Productos
         ("productos.crear", "Crear productos"),
         ("productos.editar", "Editar productos"),
         ("productos.eliminar", "Eliminar productos"),
+        ("productos.modificar_precio", "Modificar precios de productos"),
+        ("productos.ver_costo", "Ver costos de productos"),
+        # Stock
+        ("stock.ver", "Ver inventario"),
+        ("stock.entrada", "Registrar entradas de stock"),
+        ("stock.salida", "Registrar salidas de stock"),
         ("stock.ajustar", "Ajustar stock"),
+        ("stock.traspasar", "Traspasar entre almacenes"),
+        ("stock.configurar_alertas", "Configurar alertas de stock"),
+        # Clientes
         ("clientes.crear", "Crear clientes"),
         ("clientes.editar", "Editar clientes"),
+        ("clientes.eliminar", "Eliminar clientes"),
+        ("clientes.ver_creditos", "Ver créditos de clientes"),
+        ("clientes.modificar_descuento", "Modificar descuento de cliente"),
+        # Proveedores
+        ("proveedores.crear", "Crear proveedores"),
+        ("proveedores.editar", "Editar proveedores"),
+        ("proveedores.eliminar", "Eliminar proveedores"),
+        ("proveedores.gestionar_deudas", "Gestionar deudas a proveedores"),
+        # Funcionarios
         ("funcionarios.ver", "Ver funcionarios"),
+        ("funcionarios.crear", "Crear funcionarios"),
         ("funcionarios.editar", "Editar funcionarios"),
+        ("funcionarios.ver_salarios", "Ver salarios"),
+        ("funcionarios.adelantos", "Registrar adelantos de salario"),
+        ("funcionarios.pagar_salarios", "Marcar salarios como pagados"),
+        # Delivery
+        ("delivery.ver", "Ver entregas"),
+        ("delivery.crear", "Crear entregas"),
+        ("delivery.actualizar_estado", "Actualizar estado de entregas"),
+        # Flota
+        ("flota.ver", "Ver flota"),
+        ("flota.gestionar", "Gestionar vehículos"),
+        # Laboratorio
+        ("laboratorio.crear", "Crear materias de laboratorio"),
+        ("laboratorio.ver", "Ver materias de laboratorio"),
+        # Sistema
+        ("usuarios.ver", "Ver usuarios"),
         ("usuarios.gestionar", "Gestionar usuarios"),
+        ("roles.gestionar", "Gestionar roles y permisos"),
         ("sistema.configurar", "Configurar sistema"),
+        ("reportes.ver", "Ver reportes"),
+        ("reportes.exportar", "Exportar reportes"),
+        # Additional view permissions
+        ("productos.ver", "Ver productos"),
+        ("proveedores.ver", "Ver proveedores"),
+        ("clientes.ver", "Ver clientes"),
+        ("facturas.ver", "Ver facturas"),
+        ("ventas.ver_historial", "Ver historial de ventas"),
     ]
     for clave, desc in permisos_data:
         db.add(Permiso(clave=clave, descripcion=desc))
@@ -1552,13 +2535,81 @@ async def seed_data(db: AsyncSession = Depends(get_db)):
     for rol_nombre in ["ADMIN", "GERENTE", "VENDEDOR", "DELIVERY"]:
         db.add(Rol(empresa_id=empresa.id, nombre=rol_nombre, descripcion=f"Rol {rol_nombre}"))
     
+    await db.flush()  # Flush to get IDs
+    
+    # Assign all permissions to ADMIN role
+    admin_rol_result = await db.execute(select(Rol).where(Rol.nombre == "ADMIN", Rol.empresa_id == empresa.id))
+    admin_rol = admin_rol_result.scalar_one_or_none()
+    
+    if admin_rol:
+        permisos_result = await db.execute(select(Permiso))
+        all_permisos = permisos_result.scalars().all()
+        for permiso in all_permisos:
+            db.add(RolPermiso(rol_id=admin_rol.id, permiso_id=permiso.id))
+    
+    # Assign permissions to GERENTE role
+    gerente_rol_result = await db.execute(select(Rol).where(Rol.nombre == "GERENTE", Rol.empresa_id == empresa.id))
+    gerente_rol = gerente_rol_result.scalar_one_or_none()
+    gerente_permisos = [
+        "ventas.crear", "ventas.ver", "ventas.anular", "ventas.modificar_precio", "ventas.aplicar_descuento",
+        "ventas.imprimir_boleta", "ventas.imprimir_factura", "ventas.ver_historial",
+        "productos.ver", "productos.crear", "productos.editar", "productos.modificar_precio",
+        "stock.ver", "stock.entrada", "stock.salida", "stock.traspasar",
+        "clientes.ver", "clientes.crear", "clientes.editar", "clientes.ver_creditos",
+        "proveedores.ver", "proveedores.gestionar_deudas",
+        "funcionarios.ver", "funcionarios.ver_salarios", "funcionarios.adelantos",
+        "delivery.ver", "delivery.crear", "delivery.actualizar_estado",
+        "flota.ver", "laboratorio.ver", "laboratorio.crear",
+        "reportes.ver", "reportes.exportar"
+    ]
+    if gerente_rol:
+        for perm_clave in gerente_permisos:
+            perm_result = await db.execute(select(Permiso).where(Permiso.clave == perm_clave))
+            perm = perm_result.scalar_one_or_none()
+            if perm:
+                db.add(RolPermiso(rol_id=gerente_rol.id, permiso_id=perm.id))
+    
+    # Assign permissions to VENDEDOR role
+    vendedor_rol_result = await db.execute(select(Rol).where(Rol.nombre == "VENDEDOR", Rol.empresa_id == empresa.id))
+    vendedor_rol = vendedor_rol_result.scalar_one_or_none()
+    vendedor_permisos = [
+        "ventas.crear", "ventas.ver", "ventas.imprimir_boleta", "ventas.imprimir_factura", "ventas.ver_historial",
+        "productos.ver", "stock.ver",
+        "clientes.ver", "clientes.crear",
+        "delivery.ver", "delivery.crear",
+        "laboratorio.ver"
+    ]
+    if vendedor_rol:
+        for perm_clave in vendedor_permisos:
+            perm_result = await db.execute(select(Permiso).where(Permiso.clave == perm_clave))
+            perm = perm_result.scalar_one_or_none()
+            if perm:
+                db.add(RolPermiso(rol_id=vendedor_rol.id, permiso_id=perm.id))
+    
+    # Assign permissions to DELIVERY role
+    delivery_rol_result = await db.execute(select(Rol).where(Rol.nombre == "DELIVERY", Rol.empresa_id == empresa.id))
+    delivery_rol = delivery_rol_result.scalar_one_or_none()
+    delivery_permisos = [
+        "delivery.ver", "delivery.actualizar_estado",
+        "flota.ver"
+    ]
+    if delivery_rol:
+        for perm_clave in delivery_permisos:
+            perm_result = await db.execute(select(Permiso).where(Permiso.clave == perm_clave))
+            perm = perm_result.scalar_one_or_none()
+            if perm:
+                db.add(RolPermiso(rol_id=delivery_rol.id, permiso_id=perm.id))
+    
+    # Assign admin user to ADMIN role
+    admin.rol_id = admin_rol.id if admin_rol else None
+    
     # Create categories
     categorias = ["Pinturas", "Herramientas", "Materiales", "Accesorios"]
     for cat in categorias:
         db.add(Categoria(empresa_id=empresa.id, nombre=cat))
     
     # Create brands
-    marcas = ["Alba", "Sherwin Williams", "Sinteplast", "Tersuave"]
+    marcas = ["Alba", "Sherwin Williams", "Sinteplast", "Tersuave", "3M"]
     for marca in marcas:
         db.add(Marca(empresa_id=empresa.id, nombre=marca))
     
