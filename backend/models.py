@@ -83,7 +83,6 @@ class Usuario(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     empresa_id = Column(Integer, ForeignKey("empresas.id"), nullable=False)
-    rol_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     nombre = Column(String(255), nullable=False)
@@ -94,7 +93,6 @@ class Usuario(Base):
     actualizado_en = Column(DateTime(timezone=True), onupdate=func.now())
     
     empresa = relationship("Empresa", back_populates="usuarios")
-    rol = relationship("Rol", foreign_keys=[rol_id])
     roles = relationship("UsuarioRol", back_populates="usuario")
     preferencias = relationship("PreferenciaUsuario", back_populates="usuario", uselist=False)
     ventas = relationship("Venta", back_populates="usuario")
