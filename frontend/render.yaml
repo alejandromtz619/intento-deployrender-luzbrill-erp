@@ -8,5 +8,5 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20.18.0
-      - key: REACT_APP_API_URL
-        value: https://luzbrill-backend.onrender.com/api
+      - key: REACT_APP_BACKEND_URL
+        value: https://luzbrill-backend.onrender.com

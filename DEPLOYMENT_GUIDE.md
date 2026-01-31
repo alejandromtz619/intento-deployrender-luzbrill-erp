@@ -88,14 +88,16 @@ PORT = 10000
 En **"Environment Variables"**, agrega:
 
 ```
-REACT_APP_API_URL = https://[URL-DE-TU-BACKEND]/api
+REACT_APP_BACKEND_URL = https://[URL-DE-TU-BACKEND]
 NODE_VERSION = 20.18.0
 ```
 
 **Ejemplo**: Si tu backend es `https://luzbrill-backend.onrender.com`, entonces:
 ```
-REACT_APP_API_URL = https://luzbrill-backend.onrender.com/api
+REACT_APP_BACKEND_URL = https://luzbrill-backend.onrender.com
 ```
+
+**IMPORTANTE**: NO incluyas `/api` al final, el código lo agrega automáticamente.
 
 ### Paso 3.3: Deploy
 1. Click **"Create Web Service"**
