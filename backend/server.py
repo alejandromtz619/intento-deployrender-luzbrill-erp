@@ -2628,6 +2628,135 @@ async def seed_data(db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "Data seeded successfully", "empresa_id": empresa.id}
 
+@api_router.post("/reset-database")
+async def reset_database(db: AsyncSession = Depends(get_db)):
+    """
+    PELIGRO: Elimina y recrea todas las tablas
+    Solo usar en desarrollo o primera configuración
+    """
+    try:
+        # Drop all tables
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+        
+        logger.info("Database reset completed")
+        
+        # Create default empresa
+        empresa = Empresa(
+            ruc="12345678901",
+            razon_social="Luz Brill S.A.",
+            nombre_comercial="Luz Brill",
+            direccion="Av. Principal 123",
+            telefono="123456789",
+            email="contacto@luzbrill.com",
+            estado=True
+        )
+        db.add(empresa)
+        await db.flush()
+        
+        # Create admin role
+        rol_admin = Rol(
+            empresa_id=empresa.id,
+            nombre="ADMIN",
+            descripcion="Administrador del sistema",
+            estado=True
+        )
+        db.add(rol_admin)
+        await db.flush()
+        
+        # Create admin user
+        admin = Usuario(
+            empresa_id=empresa.id,
+            email="admin@luzbrill.com",
+            password_hash=hash_password("admin123"),
+            nombre="Admin",
+            apellido="Sistema",
+            telefono="123456789",
+            activo=True
+        )
+        db.add(admin)
+        await db.flush()
+        
+        # Assign role to user via UsuarioRol
+        usuario_rol = UsuarioRol(
+            usuario_id=admin.id,
+            rol_id=rol_admin.id
+        )
+        db.add(usuario_rol)
+        
+        # Create permissions
+        permisos_data = [
+            ("ventas.crear", "Crear ventas"),
+            ("ventas.ver", "Ver ventas"),
+            ("ventas.anular", "Anular ventas"),
+            ("productos.crear", "Crear productos"),
+            ("productos.editar", "Editar productos"),
+            ("productos.eliminar", "Eliminar productos"),
+            ("stock.ajustar", "Ajustar stock"),
+            ("clientes.crear", "Crear clientes"),
+            ("clientes.editar", "Editar clientes"),
+            ("funcionarios.ver", "Ver funcionarios"),
+            ("funcionarios.editar", "Editar funcionarios"),
+            ("usuarios.gestionar", "Gestionar usuarios"),
+            ("sistema.configurar", "Configurar sistema"),
+        ]
+        for clave, desc in permisos_data:
+            permiso = Permiso(clave=clave, descripcion=desc, estado=True)
+            db.add(permiso)
+            await db.flush()
+            
+            # Assign all permissions to admin role
+            rol_permiso = RolPermiso(rol_id=rol_admin.id, permiso_id=permiso.id)
+            db.add(rol_permiso)
+        
+        # Create other roles
+        for rol_nombre in ["GERENTE", "VENDEDOR", "DELIVERY"]:
+            db.add(Rol(
+                empresa_id=empresa.id,
+                nombre=rol_nombre,
+                descripcion=f"Rol {rol_nombre}",
+                estado=True
+            ))
+        
+        # Create categories
+        categorias = ["Pinturas", "Herramientas", "Materiales", "Accesorios"]
+        for cat in categorias:
+            db.add(Categoria(empresa_id=empresa.id, nombre=cat, estado=True))
+        
+        # Create brands
+        marcas = ["Alba", "Sherwin Williams", "Sinteplast", "Tersuave"]
+        for marca in marcas:
+            db.add(Marca(empresa_id=empresa.id, nombre=marca, estado=True))
+        
+        # Create warehouses
+        db.add(Almacen(empresa_id=empresa.id, nombre="Depósito Principal", ubicacion="Planta Baja", estado=True))
+        db.add(Almacen(empresa_id=empresa.id, nombre="Tienda", ubicacion="Local Comercial", estado=True))
+        
+        # Create occasional client
+        db.add(Cliente(
+            empresa_id=empresa.id,
+            nombre="Cliente",
+            apellido="Ocasional",
+            ruc="00000000-0",
+            estado=True
+        ))
+        
+        await db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Base de datos reseteada y poblada exitosamente",
+            "credentials": {
+                "email": "admin@luzbrill.com",
+                "password": "admin123"
+            },
+            "empresa_id": empresa.id
+        }
+    except Exception as e:
+        logger.error(f"Error al resetear base de datos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al resetear base de datos: {str(e)}")
+
 # Include router
 app.include_router(api_router)
 
