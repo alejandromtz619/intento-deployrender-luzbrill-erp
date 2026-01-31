@@ -86,11 +86,19 @@ MANUAL_CURRENCY_RATES = {
 # Create FastAPI app
 app = FastAPI(title="Luz Brill ERP API", version="1.0.0")
 
-# CORS
+# CORS Configuration
+cors_origins = os.environ.get('CORS_ORIGINS', '*')
+if cors_origins == '*':
+    allowed_origins = ['*']
+else:
+    allowed_origins = [origin.strip() for origin in cors_origins.split(',')]
+
+logger.info(f"CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
