@@ -1,0 +1,11 @@
+/* Luz Brill ERP Custom Styles */
+
+/* Remove default styles */
+.App-header {
+    display: none;
+}
+
+/* Toast notification fix for dark mode */
+[data-sonner-toaster] {
+    font-family: 'Inter', system-ui, sans-serif;
+}

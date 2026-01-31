@@ -1,0 +1,143 @@
+{
+  "brand_identity": {
+    "name": "Luz Brill ERP",
+    "archetype": "The Performance Pro (Archetype 2) + Swiss Clarity (Archetype 4)",
+    "core_values": ["Efficiency", "Precision", "Reliability"],
+    "emotional_tone": "Professional, Direct, High-Contrast",
+    "visual_style": "Dense Data, Sharp Edges, High Legibility"
+  },
+  "typography": {
+    "headings": {
+      "family": "Manrope",
+      "weights": ["600", "700", "800"],
+      "usage": "Page titles, Widget headers, Modal titles",
+      "letter_spacing": "-0.02em"
+    },
+    "body": {
+      "family": "Inter",
+      "weights": ["400", "500"],
+      "usage": "General text, Form labels, Table content"
+    },
+    "data": {
+      "family": "JetBrains Mono",
+      "weights": ["500"],
+      "usage": "Currency (PYG/USD), SKUs, Barcodes, IDs",
+      "letter_spacing": "-0.01em"
+    }
+  },
+  "colors": {
+    "primary": {
+      "name": "Luz Brill Blue",
+      "hex": "#0044CC",
+      "tailwind_var": "--primary",
+      "usage": "Primary buttons, Active states, Key highlights"
+    },
+    "secondary": {
+      "name": "Ice Blue",
+      "hex": "#F0F4FF",
+      "tailwind_var": "--secondary",
+      "usage": "Backgrounds for active items, subtle highlights"
+    },
+    "accent": {
+      "name": "Safety Orange",
+      "hex": "#FF6B00",
+      "tailwind_var": "--accent",
+      "usage": "Alerts, 'Urgent' badges, Call-to-actions requiring caution"
+    },
+    "background": {
+      "light": "#FFFFFF",
+      "dark": "#09090B",
+      "subtle": "#F8FAFC"
+    },
+    "semantic": {
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "error": "#EF4444",
+      "info": "#3B82F6"
+    }
+  },
+  "layout_strategies": {
+    "dashboard": {
+      "type": "Bento Grid (Mode B - High Density)",
+      "grid_cols": "grid-cols-1 md:grid-cols-4 lg:grid-cols-12",
+      "gap": "gap-4",
+      "widgets": {
+        "currency_ticker": "col-span-full h-10 flex items-center bg-slate-900 text-white overflow-hidden",
+        "sales_chart": "col-span-full md:col-span-8 row-span-2",
+        "alerts_panel": "col-span-full md:col-span-4 row-span-2",
+        "quick_actions": "col-span-full md:col-span-4 row-span-1"
+      }
+    },
+    "pos_sales": {
+      "structure": "Split Screen",
+      "left_panel": "Product Grid (66% width) - Visual cards with images",
+      "right_panel": "Cart & Totals (33% width) - Sticky, high contrast totals",
+      "mobile_behavior": "Tabs: 'Products' vs 'Cart' toggle"
+    },
+    "tables": {
+      "density": "Compact",
+      "row_height": "h-10",
+      "header_style": "uppercase text-xs font-bold text-muted-foreground tracking-wider bg-muted/50"
+    }
+  },
+  "component_customization": {
+    "cards": {
+      "radius": "rounded-md",
+      "border": "border border-border/60",
+      "shadow": "shadow-sm hover:shadow-md transition-shadow duration-200"
+    },
+    "buttons": {
+      "radius": "rounded-md",
+      "font_weight": "font-semibold",
+      "text_transform": "none"
+    },
+    "inputs": {
+      "radius": "rounded-md",
+      "bg": "bg-background",
+      "border": "border-input focus:ring-2 focus:ring-primary/20"
+    },
+    "navigation": {
+      "sidebar": "Fixed left, dark mode by default for contrast",
+      "mobile_nav": "Bottom fixed bar for Delivery/Sales roles"
+    }
+  },
+  "image_assets": {
+    "login_background": {
+      "url": "https://images.unsplash.com/photo-1717343655388-3114d3badb20?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Modern abstract office building blue sky",
+      "usage": "Full screen background for Login page with overlay"
+    },
+    "inventory_placeholder": {
+      "url": "https://images.unsplash.com/photo-1721937127582-ed331de95a04?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Warehouse shelves with boxes",
+      "usage": "Empty state for Stock module or header image"
+    },
+    "delivery_fleet": {
+      "url": "https://images.unsplash.com/photo-1681514583222-0579e6835666?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "White delivery truck in warehouse",
+      "usage": "Header for Delivery/Fleet module"
+    }
+  },
+  "universal_guidelines": {
+    "do_not": [
+      "Use generic 'SaaS Blue' gradients",
+      "Center align main dashboard content",
+      "Use rounded corners larger than 8px (keep it professional)",
+      "Use 'Inter' for headings (Use Manrope)"
+    ],
+    "must_do": [
+      "Use 'JetBrains Mono' for all financial data and codes",
+      "Ensure high contrast for outdoor use (Delivery module)",
+      "Add 'data-testid' to all interactive elements",
+      "Use 'sonner' for all toast notifications",
+      "Implement the Currency Ticker as a marquee component"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "1. Install 'lucide-react' for icons.",
+    "2. Update 'index.css' to reflect the 'Luz Brill Blue' color variables.",
+    "3. Create a 'Layout' component that handles the Sidebar and Topbar structure.",
+    "4. Implement the 'CurrencyTicker' component immediately as it's a key differentiator.",
+    "5. Ensure the POS (Ventas) page is responsive: Grid on Desktop, List/Tabs on Mobile."
+  ]
+}
