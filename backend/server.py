@@ -274,28 +274,6 @@ async def eliminar_usuario(usuario_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "Usuario desactivado"}
 
-@api_router.get("/usuarios/{usuario_id}/permisos")
-async def obtener_permisos_usuario(usuario_id: int, db: AsyncSession = Depends(get_db)):
-    """Obtiene todos los permisos del usuario basados en su rol"""
-    # Get user with rol
-    result = await db.execute(select(Usuario).where(Usuario.id == usuario_id))
-    usuario = result.scalar_one_or_none()
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    if not usuario.rol_id:
-        return []
-    
-    # Get all permissions for user's role
-    result = await db.execute(
-        select(Permiso)
-        .join(RolPermiso, RolPermiso.permiso_id == Permiso.id)
-        .where(RolPermiso.rol_id == usuario.rol_id)
-    )
-    permisos = result.scalars().all()
-    
-    return [{"id": p.id, "clave": p.clave, "descripcion": p.descripcion} for p in permisos]
-
 # ==================== ROLES Y PERMISOS ====================
 @api_router.post("/roles", response_model=RolResponse)
 async def crear_rol(data: RolCreate, db: AsyncSession = Depends(get_db)):
@@ -390,8 +368,11 @@ async def obtener_permisos_usuario(usuario_id: int, db: AsyncSession = Depends(g
         .join(RolPermiso, Permiso.id == RolPermiso.permiso_id)
         .join(UsuarioRol, RolPermiso.rol_id == UsuarioRol.rol_id)
         .where(UsuarioRol.usuario_id == usuario_id)
+        .where(Permiso.estado == True)
+        .distinct()
     )
-    return list(set(result.scalars().all()))
+    permisos = result.scalars().all()
+    return [{"id": p.id, "clave": p.clave, "descripcion": p.descripcion} for p in permisos]
 
 # ==================== CLIENTES ====================
 @api_router.post("/clientes", response_model=ClienteResponse)
