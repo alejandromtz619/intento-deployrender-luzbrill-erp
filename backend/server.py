@@ -98,6 +98,93 @@ async def root():
 async def health():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
+@api_router.post("/seed-database")
+async def seed_database(db: AsyncSession = Depends(get_db)):
+    """
+    Endpoint para poblar la base de datos con datos iniciales
+    Solo usar en primera configuración
+    """
+    try:
+        # 1. Crear Empresa
+        result = await db.execute(select(Empresa).where(Empresa.ruc == "12345678901"))
+        empresa = result.scalar_one_or_none()
+        
+        if not empresa:
+            empresa = Empresa(
+                ruc="12345678901",
+                razon_social="Luz Brill S.A.",
+                nombre_comercial="Luz Brill",
+                direccion="Av. Principal 123",
+                telefono="123456789",
+                email="contacto@luzbrill.com",
+                estado=True
+            )
+            db.add(empresa)
+            await db.commit()
+            await db.refresh(empresa)
+        
+        # 2. Crear Rol Administrador
+        result = await db.execute(select(Rol).where(Rol.nombre == "Administrador"))
+        rol_admin = result.scalar_one_or_none()
+        
+        if not rol_admin:
+            rol_admin = Rol(
+                nombre="Administrador",
+                descripcion="Acceso total al sistema",
+                empresa_id=empresa.id,
+                estado=True
+            )
+            db.add(rol_admin)
+            await db.commit()
+            await db.refresh(rol_admin)
+        
+        # 3. Crear Usuario Administrador
+        result = await db.execute(select(Usuario).where(Usuario.email == "admin@luzbrill.com"))
+        usuario = result.scalar_one_or_none()
+        
+        if not usuario:
+            usuario = Usuario(
+                email="admin@luzbrill.com",
+                password_hash=hash_password("admin123"),
+                nombre="Admin",
+                apellido="Sistema",
+                telefono="123456789",
+                empresa_id=empresa.id,
+                estado=True
+            )
+            db.add(usuario)
+            await db.commit()
+            await db.refresh(usuario)
+        
+        # 4. Asignar Rol al Usuario
+        result = await db.execute(
+            select(UsuarioRol).where(
+                UsuarioRol.usuario_id == usuario.id,
+                UsuarioRol.rol_id == rol_admin.id
+            )
+        )
+        usuario_rol = result.scalar_one_or_none()
+        
+        if not usuario_rol:
+            usuario_rol = UsuarioRol(
+                usuario_id=usuario.id,
+                rol_id=rol_admin.id
+            )
+            db.add(usuario_rol)
+            await db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Base de datos poblada exitosamente",
+            "credentials": {
+                "email": "admin@luzbrill.com",
+                "password": "admin123"
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error al poblar base de datos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error al poblar base de datos: {str(e)}")
+
 # ==================== EMPRESA ====================
 @api_router.post("/empresas", response_model=EmpresaResponse)
 async def crear_empresa(data: EmpresaCreate, db: AsyncSession = Depends(get_db)):
