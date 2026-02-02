@@ -47,8 +47,7 @@ async def seed_database():
             rol_admin = Rol(
                 nombre="Administrador",
                 descripcion="Acceso total al sistema",
-                empresa_id=empresa.id,
-                estado=True
+                empresa_id=empresa.id
             )
             session.add(rol_admin)
             await session.commit()
@@ -69,7 +68,7 @@ async def seed_database():
                 apellido="Sistema",
                 telefono="123456789",
                 empresa_id=empresa.id,
-                estado=True
+                activo=True
             )
             session.add(usuario)
             await session.commit()
