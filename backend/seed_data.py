@@ -26,8 +26,7 @@ async def seed_database():
         if not empresa:
             empresa = Empresa(
                 ruc="12345678901",
-                razon_social="Luz Brill S.A.",
-                nombre_comercial="Luz Brill",
+                nombre="Luz Brill S.A.",
                 direccion="Av. Principal 123",
                 telefono="123456789",
                 email="contacto@luzbrill.com",
@@ -36,9 +35,9 @@ async def seed_database():
             session.add(empresa)
             await session.commit()
             await session.refresh(empresa)
-            print(f"✅ Empresa creada: {empresa.razon_social}")
+            print(f"✅ Empresa creada: {empresa.nombre}")
         else:
-            print(f"ℹ️  Empresa ya existe: {empresa.razon_social}")
+            print(f"ℹ️  Empresa ya existe: {empresa.nombre}")
         
         # 2. Crear Rol Administrador
         result = await session.execute(select(Rol).where(Rol.nombre == "Administrador"))
