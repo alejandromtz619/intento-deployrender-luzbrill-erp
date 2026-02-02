@@ -4,13 +4,13 @@ FROM node:20.18.0 AS builder
 WORKDIR /app
 
 # Copiar package.json y yarn.lock
-COPY frontend/package.json frontend/yarn.lock* ./
+COPY package.json yarn.lock* ./
 
 # Instalar dependencias
 RUN yarn install --frozen-lockfile
 
 # Copiar código
-COPY frontend/ .
+COPY . .
 
 # Build
 RUN yarn build
