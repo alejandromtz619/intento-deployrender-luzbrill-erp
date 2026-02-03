@@ -58,7 +58,18 @@ const Dashboard = () => {
       try {
         const data = await api(`/dashboard/ventas-periodo?empresa_id=${empresa.id}&periodo=${ventasPeriodo}`);
         setVentasData(data || []);
-      } catch chart data based on selected period
+      } catch (e) {
+        console.error('Error fetching ventas periodo:', e);
+        setVentasData([]);
+      } finally {
+        setLoadingVentas(false);
+      }
+    };
+    
+    fetchVentasPeriodo();
+  }, [empresa?.id, ventasPeriodo, api]);
+
+  // Generate chart data based on selected period
   const getChartData = () => {
     if (ventasPeriodo === 'dia') {
       // 24h chart data
@@ -92,8 +103,7 @@ const Dashboard = () => {
       'anio': 'Este Año'
     };
     return labels[ventasPeriodo] || 'Hoy';
-  }fetchVentasPeriodo();
-  }, [empresa?.id, ventasPeriodo, api]);
+  };
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-PY', {
