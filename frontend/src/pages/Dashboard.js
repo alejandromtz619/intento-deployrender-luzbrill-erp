@@ -205,27 +205,24 @@ const Dashboard = () => {
         {/* Ventas Chart */}
         <Card className="lg:col-span-4">
           <CardHeader className="flex flex-row items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                Ventas - {getPeriodoLabel()}
-              </CardTitle>
-            </div>
-              <Select value={ventasPeriodo} onValueChange={setVentasPeriodo}>
-                <SelectTrigger className="w-[160px]">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="dia">Hoy</SelectItem>
-                  <SelectItem value="semana">Esta Semana</SelectItem>
-                  <SelectItem value="mes">Este Mes</SelectItem>
-                  <SelectItem value="trimestre">Trimestre</SelectItem>
-                  <SelectItem value="semestre">Semestre</SelectItem>
-                  <SelectItem value="anio">Año</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              Ventas - {getPeriodoLabel()}
+            </CardTitle>
+            <Select value={ventasPeriodo} onValueChange={setVentasPeriodo}>
+              <SelectTrigger className="w-[160px]">
+                <Calendar className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dia">Hoy</SelectItem>
+                <SelectItem value="semana">Esta Semana</SelectItem>
+                <SelectItem value="mes">Este Mes</SelectItem>
+                <SelectItem value="trimestre">Trimestre</SelectItem>
+                <SelectItem value="semestre">Semestre</SelectItem>
+                <SelectItem value="anio">Año</SelectItem>
+              </SelectContent>
+            </Select>
           </CardHeader>
           <CardContent>
             {loadingVentas ? (
