@@ -1924,8 +1924,31 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
         .group_by(func_sql.extract('hour', Venta.creado_en))
         .order_by('hora')
     )
+    
+    # Obtener unidades por hora
+    unidades_por_hora_result = await db.execute(
+        select(
+            func_sql.extract('hour', Venta.creado_en).label('hora'),
+            func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
+        )
+        .join(VentaItem, VentaItem.venta_id == Venta.id)
+        .where(
+            Venta.empresa_id == empresa_id,
+            Venta.estado == EstadoVenta.CONFIRMADA,
+            Venta.creado_en >= today_start,
+            Venta.creado_en <= today_end
+        )
+        .group_by(func_sql.extract('hour', Venta.creado_en))
+    )
+    unidades_dict = {int(row[0]): int(row[1] or 0) for row in unidades_por_hora_result.all()}
+    
     ventas_por_hora = [
-        VentasPorHora(hora=int(row[0]), cantidad=row[1], monto=row[2])
+        VentasPorHora(
+            hora=int(row[0]),
+            cantidad=row[1],
+            monto=row[2],
+            unidades=unidades_dict.get(int(row[0]), 0)
+        )
         for row in ventas_por_hora_result.all()
     ]
     

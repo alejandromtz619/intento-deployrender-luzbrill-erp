@@ -117,6 +117,15 @@ const Dashboard = () => {
     return labels[ventasMetrica] || 'Cantidad de Ventas';
   };
 
+  const getBarColor = () => {
+    const colors = {
+      'cantidad': 'hsl(var(--primary))',
+      'monto': '#10b981', // green-500
+      'unidades': '#06b6d4' // cyan-500 (turquesa)
+    };
+    return colors[ventasMetrica] || 'hsl(var(--primary))';
+  };
+
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-PY', {
       style: 'currency',
@@ -279,7 +288,7 @@ const Dashboard = () => {
                         return [value, 'Cantidad'];
                       }}
                     />
-                    <Bar dataKey={ventasMetrica} fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey={ventasMetrica} fill={getBarColor()} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

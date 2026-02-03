@@ -496,6 +496,7 @@ class VentasPorHora(BaseModel):
     hora: int
     cantidad: int
     monto: Decimal
+    unidades: int = 0
 
 class StockBajo(BaseModel):
     producto_id: int
