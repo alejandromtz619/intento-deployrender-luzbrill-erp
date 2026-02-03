@@ -174,11 +174,43 @@ const Dashboard = () => {
                 <p className="text-xs text-muted-foreground mt-1">productos</p>
               </div>
               <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-             div className="flex items-center justify-between">
+                <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="card-hover">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Ventas del Mes</p>
+                <p className="text-2xl font-bold font-mono-data">
+                  {formatCurrency(stats?.ventas_mes)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {stats?.cantidad_ventas_mes || 0} ventas
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                <ShoppingCart className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        {/* Ventas Chart */}
+        <Card className="lg:col-span-4">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div className="flex items-center gap-2">
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5" />
                 Ventas - {getPeriodoLabel()}
               </CardTitle>
+            </div>
               <Select value={ventasPeriodo} onValueChange={setVentasPeriodo}>
                 <SelectTrigger className="w-[160px]">
                   <Calendar className="h-4 w-4 mr-2" />
