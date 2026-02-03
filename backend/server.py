@@ -1953,6 +1953,182 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
         productos_alto_stock=productos_alto_stock
     )
 
+@api_router.get("/dashboard/ventas-periodo")
+async def obtener_ventas_por_periodo(
+    empresa_id: int,
+    periodo: str = "dia",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Obtener ventas agrupadas por período
+    periodo: dia, semana, mes, trimestre, semestre, anio
+    """
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    
+    if periodo == "dia":
+        # Ventas por hora del día actual
+        today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
+        today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
+        
+        result = await db.execute(
+            select(
+                func_sql.extract('hour', Venta.creado_en).label('hora'),
+                func_sql.count(Venta.id).label('cantidad'),
+                func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
+            )
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= today_start,
+                Venta.creado_en <= today_end
+            )
+            .group_by(func_sql.extract('hour', Venta.creado_en))
+            .order_by('hora')
+        )
+        return [
+            {"label": f"{int(row[0])}:00", "cantidad": row[1], "monto": float(row[2])}
+            for row in result.all()
+        ]
+    
+    elif periodo == "semana":
+        # Últimos 7 días
+        fecha_inicio = today - timedelta(days=6)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        
+        result = await db.execute(
+            select(
+                func_sql.date(Venta.creado_en).label('fecha'),
+                func_sql.count(Venta.id).label('cantidad'),
+                func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
+            )
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by(func_sql.date(Venta.creado_en))
+            .order_by('fecha')
+        )
+        # Asegurar que todos los días estén representados
+        ventas_dict = {row[0]: {"cantidad": row[1], "monto": float(row[2])} for row in result.all()}
+        return [
+            {
+                "label": (fecha_inicio + timedelta(days=i)).strftime("%d/%m"),
+                "cantidad": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("cantidad", 0),
+                "monto": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("monto", 0)
+            }
+            for i in range(7)
+        ]
+    
+    elif periodo == "mes":
+        # Último mes (30 días) agrupado por día
+        fecha_inicio = today - timedelta(days=29)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        
+        result = await db.execute(
+            select(
+                func_sql.date(Venta.creado_en).label('fecha'),
+                func_sql.count(Venta.id).label('cantidad'),
+                func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
+            )
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by(func_sql.date(Venta.creado_en))
+            .order_by('fecha')
+        )
+        ventas_dict = {row[0]: {"cantidad": row[1], "monto": float(row[2])} for row in result.all()}
+        return [
+            {
+                "label": (fecha_inicio + timedelta(days=i)).strftime("%d/%m"),
+                "cantidad": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("cantidad", 0),
+                "monto": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("monto", 0)
+            }
+            for i in range(30)
+        ]
+    
+    elif periodo == "trimestre":
+        # Últimos 3 meses agrupado por semana
+        fecha_inicio = today - timedelta(days=90)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        
+        result = await db.execute(
+            select(
+                func_sql.extract('week', Venta.creado_en).label('semana'),
+                func_sql.extract('year', Venta.creado_en).label('anio'),
+                func_sql.count(Venta.id).label('cantidad'),
+                func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
+            )
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by('semana', 'anio')
+            .order_by('anio', 'semana')
+        )
+        return [
+            {"label": f"Sem {int(row[0])}", "cantidad": row[2], "monto": float(row[3])}
+            for row in result.all()
+        ]
+    
+    elif periodo == "semestre":
+        # Últimos 6 meses agrupado por mes
+        fecha_inicio = today - timedelta(days=180)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        
+        result = await db.execute(
+            select(
+                func_sql.extract('month', Venta.creado_en).label('mes'),
+                func_sql.extract('year', Venta.creado_en).label('anio'),
+                func_sql.count(Venta.id).label('cantidad'),
+                func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
+            )
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by('mes', 'anio')
+            .order_by('anio', 'mes')
+        )
+        meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        return [
+            {"label": meses[int(row[0]) - 1], "cantidad": row[2], "monto": float(row[3])}
+            for row in result.all()
+        ]
+    
+    elif periodo == "anio":
+        # Último año agrupado por mes
+        fecha_inicio = today - timedelta(days=365)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        
+        result = await db.execute(
+            select(
+                func_sql.extract('month', Venta.creado_en).label('mes'),
+                func_sql.extract('year', Venta.creado_en).label('anio'),
+                func_sql.count(Venta.id).label('cantidad'),
+                func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
+            )
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by('mes', 'anio')
+            .order_by('anio', 'mes')
+        )
+        meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        return [
+            {"label": meses[int(row[0]) - 1], "cantidad": row[2], "monto": float(row[3])}
+            for row in result.all()
+        ]
+    
+    return []
+
 # ==================== ALERTAS ====================
 @api_router.get("/alertas", response_model=List[Alerta])
 async def obtener_alertas(empresa_id: int, db: AsyncSession = Depends(get_db)):

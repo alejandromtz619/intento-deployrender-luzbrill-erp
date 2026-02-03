@@ -3,10 +3,18 @@ import { useApp } from '../context/AppContext';
 import CurrencyTicker from '../components/CurrencyTicker';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
 import { ScrollArea } from '../components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import { 
   ShoppingCart, TrendingUp, Package, Truck, AlertTriangle, 
-  DollarSign, ArrowUp, ArrowDown
+  DollarSign, ArrowUp, ArrowDown, Calendar
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { cn } from '../lib/utils';
@@ -16,6 +24,9 @@ const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [alertas, setAlertas] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [ventasPeriodo, setVentasPeriodo] = useState('dia');
+  const [ventasData, setVentasData] = useState([]);
+  const [loadingVentas, setLoadingVentas] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -37,6 +48,52 @@ const Dashboard = () => {
     
     fetchData();
   }, [empresa?.id, api]);
+
+  // Fetch ventas según período seleccionado
+  useEffect(() => {
+    const fetchVentasPeriodo = async () => {
+      if (!empresa?.id) return;
+      
+      setLoadingVentas(true);
+      try {
+        const data = await api(`/dashboard/ventas-periodo?empresa_id=${empresa.id}&periodo=${ventasPeriodo}`);
+        setVentasData(data || []);
+      } catch chart data based on selected period
+  const getChartData = () => {
+    if (ventasPeriodo === 'dia') {
+      // 24h chart data
+      return Array.from({ length: 24 }, (_, i) => {
+        const hourData = stats?.ventas_por_hora?.find(v => v.hora === i);
+        return {
+          label: `${i}:00`,
+          cantidad: hourData?.cantidad || 0,
+          monto: hourData?.monto || 0
+        };
+      });
+    }
+    
+    // Para otros períodos, usar ventasData del backend
+    return ventasData.map(item => ({
+      label: item.label || item.fecha || item.periodo,
+      cantidad: item.cantidad || 0,
+      monto: item.monto || 0
+    }));
+  };
+
+  const chartData = getChartData();
+
+  const getPeriodoLabel = () => {
+    const labels = {
+      'dia': 'Hoy',
+      'semana': 'Esta Semana',
+      'mes': 'Este Mes',
+      'trimestre': 'Este Trimestre',
+      'semestre': 'Este Semestre',
+      'anio': 'Este Año'
+    };
+    return labels[ventasPeriodo] || 'Hoy';
+  }fetchVentasPeriodo();
+  }, [empresa?.id, ventasPeriodo, api]);
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('es-PY', {
@@ -117,37 +174,62 @@ const Dashboard = () => {
                 <p className="text-xs text-muted-foreground mt-1">productos</p>
               </div>
               <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <Package className="h-6 w-6 text-red-600 dark:text-red-400" />
-              </div>
+             div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Ventas - {getPeriodoLabel()}
+              </CardTitle>
+              <Select value={ventasPeriodo} onValueChange={setVentasPeriodo}>
+                <SelectTrigger className="w-[160px]">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dia">Hoy</SelectItem>
+                  <SelectItem value="semana">Esta Semana</SelectItem>
+                  <SelectItem value="mes">Este Mes</SelectItem>
+                  <SelectItem value="trimestre">Trimestre</SelectItem>
+                  <SelectItem value="semestre">Semestre</SelectItem>
+                  <SelectItem value="anio">Año</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="card-hover">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Créditos por Vencer</p>
-                <p className="text-2xl font-bold">{stats?.creditos_por_vencer || 0}</p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <AlertTriangle className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Sales Chart */}
-        <Card className="lg:col-span-8">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              Ventas por Hora
-            </CardTitle>
           </CardHeader>
+          <CardContent>
+            {loadingVentas ? (
+              <div className="h-64 flex items-center justify-center">
+                <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+              </div>
+            ) : (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis 
+                      dataKey="label" 
+                      tick={{ fontSize: 10 }}
+                      interval={ventasPeriodo === 'dia' ? 2 : 'preserveStartEnd'}
+                      angle={ventasPeriodo === 'dia' ? 0 : -45}
+                      textAnchor={ventasPeriodo === 'dia' ? 'middle' : 'end'}
+                      height={ventasPeriodo === 'dia' ? 30 : 60}
+                    />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '6px'
+                      }}
+                      formatter={(value, name) => [
+                        name === 'monto' ? formatCurrency(value) : value,
+                        name === 'monto' ? 'Monto' : 'Cantidad'
+                      ]}
+                    />
+                    <Bar dataKey="cantidad" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}ader>
           <CardContent>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
