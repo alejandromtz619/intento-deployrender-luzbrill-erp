@@ -12,23 +12,23 @@ export const useApp = () => {
 
 // Map de permisos requeridos por ruta
 const ROUTE_PERMISSIONS = {
-  '/dashboard': null, // todos pueden ver
-  '/ventas': 'ventas.crear',
-  '/delivery': 'delivery.ver',
-  '/laboratorio': 'laboratorio.ver',
-  '/productos': 'productos.ver',
-  '/marcas': 'productos.ver',
-  '/proveedores': 'proveedores.ver',
-  '/clientes': 'clientes.ver',
-  '/funcionarios': 'funcionarios.ver',
-  '/stock': 'stock.ver',
-  '/flota': 'flota.ver',
-  '/facturas': 'facturas.ver',
-  '/usuarios': 'usuarios.gestionar',
-  '/permisos': 'usuarios.gestionar',
-  '/sistema': 'sistema.configurar',
-  '/historial-ventas': 'ventas.ver_historial',
-  '/reportes': 'reportes.ver',
+  '/dashboard': 'dashboard',
+  '/ventas': 'ventas',
+  '/delivery': 'delivery',
+  '/laboratorio': 'laboratorio',
+  '/productos': 'productos',
+  '/marcas': 'marcas',
+  '/proveedores': 'proveedores',
+  '/clientes': 'clientes',
+  '/funcionarios': 'funcionarios',
+  '/stock': 'stock',
+  '/flota': 'flota',
+  '/facturas': 'facturas',
+  '/usuarios': 'usuarios',
+  '/permisos': 'permisos',
+  '/sistema': 'sistema',
+  '/historial-ventas': 'ventas',
+  '/reportes': 'reportes',
 };
 
 export const AppProvider = ({ children }) => {
