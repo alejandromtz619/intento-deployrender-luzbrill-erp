@@ -1975,7 +1975,13 @@ async def obtener_ventas_por_periodo(
             select(
                 func_sql.extract('hour', Venta.creado_en).label('hora'),
                 func_sql.count(Venta.id).label('cantidad'),
-                func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
+                func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto'),
+                func_sql.coalesce(func_sql.sum(
+                    select(func_sql.sum(VentaItem.cantidad))
+                    .where(VentaItem.venta_id == Venta.id)
+                    .correlate(Venta)
+                    .scalar_subquery()
+                ), 0).label('unidades')
             )
             .where(
                 Venta.empresa_id == empresa_id,
@@ -1987,7 +1993,7 @@ async def obtener_ventas_por_periodo(
             .order_by('hora')
         )
         return [
-            {"label": f"{int(row[0])}:00", "cantidad": row[1], "monto": float(row[2])}
+            {"label": f"{int(row[0])}:00", "cantidad": row[1], "monto": float(row[2]), "unidades": int(row[3] or 0)}
             for row in result.all()
         ]
     
@@ -1996,6 +2002,7 @@ async def obtener_ventas_por_periodo(
         fecha_inicio = today - timedelta(days=6)
         fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
         
+        # Primero obtenemos los datos agregados
         result = await db.execute(
             select(
                 func_sql.date(Venta.creado_en).label('fecha'),
@@ -2010,13 +2017,31 @@ async def obtener_ventas_por_periodo(
             .group_by(func_sql.date(Venta.creado_en))
             .order_by('fecha')
         )
-        # Asegurar que todos los días estén representados
         ventas_dict = {row[0]: {"cantidad": row[1], "monto": float(row[2])} for row in result.all()}
+        
+        # Obtener unidades por fecha
+        unidades_result = await db.execute(
+            select(
+                func_sql.date(Venta.creado_en).label('fecha'),
+                func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
+            )
+            .join(VentaItem, VentaItem.venta_id == Venta.id)
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by(func_sql.date(Venta.creado_en))
+        )
+        unidades_dict = {row[0]: int(row[1] or 0) for row in unidades_result.all()}
+        
+        # Asegurar que todos los días estén representados
         return [
             {
                 "label": (fecha_inicio + timedelta(days=i)).strftime("%d/%m"),
                 "cantidad": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("cantidad", 0),
-                "monto": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("monto", 0)
+                "monto": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("monto", 0),
+                "unidades": unidades_dict.get(fecha_inicio + timedelta(days=i), 0)
             }
             for i in range(7)
         ]
@@ -2041,11 +2066,29 @@ async def obtener_ventas_por_periodo(
             .order_by('fecha')
         )
         ventas_dict = {row[0]: {"cantidad": row[1], "monto": float(row[2])} for row in result.all()}
+        
+        # Obtener unidades por fecha
+        unidades_result = await db.execute(
+            select(
+                func_sql.date(Venta.creado_en).label('fecha'),
+                func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
+            )
+            .join(VentaItem, VentaItem.venta_id == Venta.id)
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by(func_sql.date(Venta.creado_en))
+        )
+        unidades_dict = {row[0]: int(row[1] or 0) for row in unidades_result.all()}
+        
         return [
             {
                 "label": (fecha_inicio + timedelta(days=i)).strftime("%d/%m"),
                 "cantidad": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("cantidad", 0),
-                "monto": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("monto", 0)
+                "monto": ventas_dict.get(fecha_inicio + timedelta(days=i), {}).get("monto", 0),
+                "unidades": unidades_dict.get(fecha_inicio + timedelta(days=i), 0)
             }
             for i in range(30)
         ]
@@ -2070,8 +2113,31 @@ async def obtener_ventas_por_periodo(
             .group_by('semana', 'anio')
             .order_by('anio', 'semana')
         )
+        
+        # Obtener unidades por semana
+        unidades_result = await db.execute(
+            select(
+                func_sql.extract('week', Venta.creado_en).label('semana'),
+                func_sql.extract('year', Venta.creado_en).label('anio'),
+                func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
+            )
+            .join(VentaItem, VentaItem.venta_id == Venta.id)
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by('semana', 'anio')
+        )
+        unidades_dict = {(int(row[0]), int(row[1])): int(row[2] or 0) for row in unidades_result.all()}
+        
         return [
-            {"label": f"Sem {int(row[0])}", "cantidad": row[2], "monto": float(row[3])}
+            {
+                "label": f"Sem {int(row[0])}",
+                "cantidad": row[2],
+                "monto": float(row[3]),
+                "unidades": unidades_dict.get((int(row[0]), int(row[1])), 0)
+            }
             for row in result.all()
         ]
     
@@ -2095,9 +2161,32 @@ async def obtener_ventas_por_periodo(
             .group_by('mes', 'anio')
             .order_by('anio', 'mes')
         )
+        
+        # Obtener unidades por mes
+        unidades_result = await db.execute(
+            select(
+                func_sql.extract('month', Venta.creado_en).label('mes'),
+                func_sql.extract('year', Venta.creado_en).label('anio'),
+                func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
+            )
+            .join(VentaItem, VentaItem.venta_id == Venta.id)
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by('mes', 'anio')
+        )
+        unidades_dict = {(int(row[0]), int(row[1])): int(row[2] or 0) for row in unidades_result.all()}
+        
         meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         return [
-            {"label": meses[int(row[0]) - 1], "cantidad": row[2], "monto": float(row[3])}
+            {
+                "label": meses[int(row[0]) - 1],
+                "cantidad": row[2],
+                "monto": float(row[3]),
+                "unidades": unidades_dict.get((int(row[0]), int(row[1])), 0)
+            }
             for row in result.all()
         ]
     
@@ -2121,9 +2210,32 @@ async def obtener_ventas_por_periodo(
             .group_by('mes', 'anio')
             .order_by('anio', 'mes')
         )
+        
+        # Obtener unidades por mes
+        unidades_result = await db.execute(
+            select(
+                func_sql.extract('month', Venta.creado_en).label('mes'),
+                func_sql.extract('year', Venta.creado_en).label('anio'),
+                func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
+            )
+            .join(VentaItem, VentaItem.venta_id == Venta.id)
+            .where(
+                Venta.empresa_id == empresa_id,
+                Venta.estado == EstadoVenta.CONFIRMADA,
+                Venta.creado_en >= fecha_inicio_dt
+            )
+            .group_by('mes', 'anio')
+        )
+        unidades_dict = {(int(row[0]), int(row[1])): int(row[2] or 0) for row in unidades_result.all()}
+        
         meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
         return [
-            {"label": meses[int(row[0]) - 1], "cantidad": row[2], "monto": float(row[3])}
+            {
+                "label": meses[int(row[0]) - 1],
+                "cantidad": row[2],
+                "monto": float(row[3]),
+                "unidades": unidades_dict.get((int(row[0]), int(row[1])), 0)
+            }
             for row in result.all()
         ]
     

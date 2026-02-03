@@ -25,6 +25,7 @@ const Dashboard = () => {
   const [alertas, setAlertas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ventasPeriodo, setVentasPeriodo] = useState('dia');
+  const [ventasMetrica, setVentasMetrica] = useState('cantidad');
   const [ventasData, setVentasData] = useState([]);
   const [loadingVentas, setLoadingVentas] = useState(false);
 
@@ -78,7 +79,8 @@ const Dashboard = () => {
         return {
           label: `${i}:00`,
           cantidad: hourData?.cantidad || 0,
-          monto: hourData?.monto || 0
+          monto: hourData?.monto || 0,
+          unidades: hourData?.unidades || 0
         };
       });
     }
@@ -87,7 +89,8 @@ const Dashboard = () => {
     return ventasData.map(item => ({
       label: item.label || item.fecha || item.periodo,
       cantidad: item.cantidad || 0,
-      monto: item.monto || 0
+      monto: item.monto || 0,
+      unidades: item.unidades || 0
     }));
   };
 
@@ -103,6 +106,15 @@ const Dashboard = () => {
       'anio': 'Este Año'
     };
     return labels[ventasPeriodo] || 'Hoy';
+  };
+
+  const getMetricaLabel = () => {
+    const labels = {
+      'cantidad': 'Cantidad de Ventas',
+      'monto': 'Dinero',
+      'unidades': 'Unidades Vendidas'
+    };
+    return labels[ventasMetrica] || 'Cantidad de Ventas';
   };
 
   const formatCurrency = (value) => {
@@ -204,25 +216,37 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Ventas Chart */}
         <Card className="lg:col-span-4">
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5" />
-              Ventas - {getPeriodoLabel()}
+              {getMetricaLabel()} - {getPeriodoLabel()}
             </CardTitle>
-            <Select value={ventasPeriodo} onValueChange={setVentasPeriodo}>
-              <SelectTrigger className="w-[160px]">
-                <Calendar className="h-4 w-4 mr-2" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="dia">Hoy</SelectItem>
-                <SelectItem value="semana">Esta Semana</SelectItem>
-                <SelectItem value="mes">Este Mes</SelectItem>
-                <SelectItem value="trimestre">Trimestre</SelectItem>
-                <SelectItem value="semestre">Semestre</SelectItem>
-                <SelectItem value="anio">Año</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex gap-2">
+              <Select value={ventasMetrica} onValueChange={setVentasMetrica}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cantidad">Cantidad Ventas</SelectItem>
+                  <SelectItem value="monto">Dinero</SelectItem>
+                  <SelectItem value="unidades">Unidades Vendidas</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={ventasPeriodo} onValueChange={setVentasPeriodo}>
+                <SelectTrigger className="w-[160px]">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="dia">Hoy</SelectItem>
+                  <SelectItem value="semana">Esta Semana</SelectItem>
+                  <SelectItem value="mes">Este Mes</SelectItem>
+                  <SelectItem value="trimestre">Trimestre</SelectItem>
+                  <SelectItem value="semestre">Semestre</SelectItem>
+                  <SelectItem value="anio">Año</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </CardHeader>
           <CardContent>
             {loadingVentas ? (
@@ -249,12 +273,13 @@ const Dashboard = () => {
                         border: '1px solid hsl(var(--border))',
                         borderRadius: '6px'
                       }}
-                      formatter={(value, name) => [
-                        name === 'monto' ? formatCurrency(value) : value,
-                        name === 'monto' ? 'Monto' : 'Cantidad'
-                      ]}
+                      formatter={(value, name) => {
+                        if (name === 'monto') return [formatCurrency(value), 'Monto'];
+                        if (name === 'unidades') return [value, 'Unidades'];
+                        return [value, 'Cantidad'];
+                      }}
                     />
-                    <Bar dataKey="cantidad" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey={ventasMetrica} fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
