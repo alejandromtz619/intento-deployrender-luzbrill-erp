@@ -53,7 +53,7 @@ from schemas import (
     AdelantoSalarioCreate, AdelantoSalarioResponse,
     CicloSalarioCreate, CicloSalarioResponse,
     VehiculoCreate, VehiculoResponse,
-    EntregaCreate, EntregaResponse, EntregaConDetalles,
+    EntregaCreate, EntregaResponse, EntregaConDetalles, AsignarEntrega,
     FacturaCreate, FacturaResponse,
     PreferenciaUsuarioCreate, PreferenciaUsuarioResponse,
     DashboardStats, VentasPorHora, StockBajo, CotizacionDivisa, Alerta
