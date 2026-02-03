@@ -114,16 +114,6 @@ const Dashboard = () => {
     }).format(value || 0);
   };
 
-  // Generate 24h chart data
-  const chartData = Array.from({ length: 24 }, (_, i) => {
-    const hourData = stats?.ventas_por_hora?.find(v => v.hora === i);
-    return {
-      hora: `${i}:00`,
-      cantidad: hourData?.cantidad || 0,
-      monto: hourData?.monto || 0
-    };
-  });
-
   if (loading) {
     return (
       <div className="space-y-4">
