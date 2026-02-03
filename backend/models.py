@@ -430,8 +430,8 @@ class Entrega(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     venta_id = Column(Integer, ForeignKey("ventas.id"), nullable=False)
-    vehiculo_id = Column(Integer, ForeignKey("vehiculos.id"), nullable=False)
-    responsable_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
+    vehiculo_id = Column(Integer, ForeignKey("vehiculos.id"), nullable=True)
+    responsable_usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     fecha_entrega = Column(DateTime(timezone=True))
     estado = Column(Enum(EstadoEntrega), default=EstadoEntrega.PENDIENTE)
     

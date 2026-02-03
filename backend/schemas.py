@@ -445,12 +445,16 @@ class VehiculoResponse(VehiculoBase):
 # Entrega
 class EntregaBase(BaseModel):
     venta_id: int
-    vehiculo_id: int
-    responsable_usuario_id: int
+    vehiculo_id: Optional[int] = None
+    responsable_usuario_id: Optional[int] = None
     fecha_entrega: Optional[datetime] = None
 
 class EntregaCreate(EntregaBase):
     pass
+
+class AsignarEntrega(BaseModel):
+    vehiculo_id: int
+    responsable_usuario_id: int
 
 class EntregaResponse(EntregaBase):
     model_config = ConfigDict(from_attributes=True)

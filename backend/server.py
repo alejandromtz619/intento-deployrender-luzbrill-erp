@@ -1254,6 +1254,21 @@ async def confirmar_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
         )
         db.add(credito)
     
+    # Si es delivery, crear entrega automáticamente en estado PENDIENTE
+    if venta.es_delivery:
+        # Verificar si ya existe entrega para esta venta
+        entrega_existente = await db.execute(
+            select(Entrega).where(Entrega.venta_id == venta.id)
+        )
+        if not entrega_existente.scalar_one_or_none():
+            entrega = Entrega(
+                venta_id=venta.id,
+                vehiculo_id=None,
+                responsable_usuario_id=None,
+                estado=EstadoEntrega.PENDIENTE
+            )
+            db.add(entrega)
+    
     await db.commit()
     await db.refresh(venta)
     return venta
@@ -1694,8 +1709,8 @@ async def listar_entregas(
         select(Entrega, Venta, Cliente, Vehiculo, Usuario)
         .join(Venta, Entrega.venta_id == Venta.id)
         .join(Cliente, Venta.cliente_id == Cliente.id)
-        .join(Vehiculo, Entrega.vehiculo_id == Vehiculo.id)
-        .join(Usuario, Entrega.responsable_usuario_id == Usuario.id)
+        .outerjoin(Vehiculo, Entrega.vehiculo_id == Vehiculo.id)
+        .outerjoin(Usuario, Entrega.responsable_usuario_id == Usuario.id)
         .where(Venta.empresa_id == empresa_id)
     )
     
@@ -1716,11 +1731,30 @@ async def listar_entregas(
         entrega, venta, cliente, vehiculo, usuario = row
         entrega_dict = EntregaResponse.model_validate(entrega).model_dump()
         entrega_dict['cliente_nombre'] = f"{cliente.nombre} {cliente.apellido or ''}"
-        entrega_dict['vehiculo_chapa'] = vehiculo.chapa
-        entrega_dict['responsable_nombre'] = f"{usuario.nombre} {usuario.apellido or ''}"
+        entrega_dict['vehiculo_chapa'] = vehiculo.chapa if vehiculo else None
+        entrega_dict['responsable_nombre'] = f"{usuario.nombre} {usuario.apellido or ''}" if usuario else None
         entregas.append(EntregaConDetalles(**entrega_dict))
     
     return entregas
+
+@api_router.put("/entregas/{entrega_id}/asignar", response_model=EntregaResponse)
+async def asignar_entrega(entrega_id: int, data: AsignarEntrega, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Entrega).where(Entrega.id == entrega_id))
+    entrega = result.scalar_one_or_none()
+    if not entrega:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    
+    # Actualizar vehículo y responsable
+    entrega.vehiculo_id = data.vehiculo_id
+    entrega.responsable_usuario_id = data.responsable_usuario_id
+    
+    # Si estaba PENDIENTE, cambiar a EN_CAMINO
+    if entrega.estado == EstadoEntrega.PENDIENTE:
+        entrega.estado = EstadoEntrega.EN_CAMINO
+    
+    await db.commit()
+    await db.refresh(entrega)
+    return entrega
 
 @api_router.put("/entregas/{entrega_id}/estado")
 async def actualizar_estado_entrega(entrega_id: int, estado: str, db: AsyncSession = Depends(get_db)):
