@@ -51,7 +51,13 @@ const Home = () => {
         {/* Welcome Header */}
         <div className="text-center mb-12">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-primary mb-6">
-            <span className="text-3xl font-bold text-white font-['Manrope']">LB</span>
+            {empresa?.logo_url ? (
+              <img src={empresa.logo_url} alt={empresa.nombre} className="w-full h-full object-contain p-3" />
+            ) : (
+              <span className="text-3xl font-bold text-white font-['Manrope']">
+                {empresa?.nombre?.substring(0, 2).toUpperCase() || 'LB'}
+              </span>
+            )}
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold mb-2">
             ¡Bienvenido, {user?.nombre}!

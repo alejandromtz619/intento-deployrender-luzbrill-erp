@@ -51,6 +51,7 @@ class EmpresaBase(BaseModel):
     direccion: Optional[str] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
+    logo_url: Optional[str] = None
 
 class EmpresaCreate(EmpresaBase):
     pass

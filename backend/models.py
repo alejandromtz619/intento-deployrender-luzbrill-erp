@@ -61,6 +61,7 @@ class Empresa(Base):
     direccion = Column(String(500))
     telefono = Column(String(50))
     email = Column(String(255))
+    logo_url = Column(String(500))
     estado = Column(Boolean, default=True)
     creado_en = Column(DateTime(timezone=True), server_default=func.now())
     actualizado_en = Column(DateTime(timezone=True), onupdate=func.now())

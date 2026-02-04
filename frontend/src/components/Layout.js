@@ -68,10 +68,16 @@ const Layout = ({ children }) => {
         {/* Logo */}
         <div className="flex h-16 items-center justify-between px-4 border-b border-slate-800">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-              <span className="font-bold text-white">LB</span>
-            </div>
-            <span className="font-bold text-lg font-['Manrope']">Luz Brill</span>
+            {empresa?.logo_url ? (
+              <img src={empresa.logo_url} alt={empresa.nombre} className="w-8 h-8 object-contain" />
+            ) : (
+              <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
+                <span className="font-bold text-white">
+                  {empresa?.nombre?.substring(0, 2).toUpperCase() || 'LB'}
+                </span>
+              </div>
+            )}
+            <span className="font-bold text-lg font-['Manrope']">{empresa?.nombre || 'Luz Brill'}</span>
           </div>
           <Button 
             variant="ghost" 
