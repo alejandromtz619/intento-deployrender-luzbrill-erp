@@ -129,6 +129,9 @@ See [design_guidelines.json](../design_guidelines.json) for:
 - **Render free tier**: 15min cold start if inactive
 - **Test credentials**: `admin@luzbrill.com / admin123` (empresa_id: 1)
 - **CORS issues**: If deployed, update `CORS_ORIGINS` env var in backend with frontend URL (e.g., `https://luzbrill-frontend.ddelvalle.xyz`). For local dev, use `http://localhost:3000` or `*` for testing only.
+  - After changing env vars, backend auto-redeploys (wait 3-5 min)
+  - Check logs for: `CORS allowed origins: ['https://...']`
+  - If still failing, ensure no trailing slashes in URL
 
 ## References
 - [PRD.md](../memory/PRD.md): Feature list, module details

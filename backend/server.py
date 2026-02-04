@@ -90,17 +90,21 @@ app = FastAPI(title="Luz Brill ERP API", version="1.0.0")
 cors_origins = os.environ.get('CORS_ORIGINS', '*')
 if cors_origins == '*':
     allowed_origins = ['*']
+    allow_credentials = False  # Can't use credentials with wildcard
 else:
     allowed_origins = [origin.strip() for origin in cors_origins.split(',')]
+    allow_credentials = True
 
 logger.info(f"CORS allowed origins: {allowed_origins}")
+logger.info(f"CORS allow credentials: {allow_credentials}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
     allow_origins=allowed_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Mount static files for uploads
