@@ -252,11 +252,6 @@ const Ventas = () => {
       return;
     }
     
-    if (esDelivery && (!vehiculoId || !responsableId)) {
-      toast.error('Seleccione vehículo y responsable para delivery');
-      return;
-    }
-    
     // Validate cheque payment
     if (tipoPago === 'CHEQUE' && !selectedCliente.acepta_cheque) {
       toast.error('Este cliente no tiene habilitado el pago con cheque');
@@ -290,20 +285,20 @@ const Ventas = () => {
       // Confirm sale
       await api(`/ventas/${venta.id}/confirmar`, { method: 'POST' });
       
-      // Create delivery if needed
+      // Create delivery entry if marked as delivery (assignment happens in Delivery module)
       if (esDelivery) {
         await api('/entregas', {
           method: 'POST',
           body: JSON.stringify({
             venta_id: venta.id,
-            vehiculo_id: parseInt(vehiculoId),
-            responsable_usuario_id: parseInt(responsableId),
+            vehiculo_id: null,
+            responsable_usuario_id: null,
             fecha_entrega: new Date().toISOString()
           })
         });
       }
       
-      toast.success('Venta creada exitosamente');
+      toast.success(esDelivery ? 'Venta creada - Asigne delivery desde el módulo Delivery' : 'Venta creada exitosamente');
       
       // Store venta ID for printing and show print modal
       setLastVentaId(venta.id);
@@ -724,37 +719,10 @@ const Ventas = () => {
               </div>
 
               {esDelivery && (
-                <div className="space-y-3 p-3 bg-secondary rounded-lg">
-                  <div>
-                    <Label>Vehículo</Label>
-                    <Select value={vehiculoId} onValueChange={setVehiculoId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar vehículo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {vehiculos.map((v) => (
-                          <SelectItem key={v.id} value={v.id.toString()}>
-                            {v.tipo} - {v.chapa}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Responsable</Label>
-                    <Select value={responsableId} onValueChange={setResponsableId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar responsable" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {usuarios.map((u) => (
-                          <SelectItem key={u.id} value={u.id.toString()}>
-                            {u.nombre} {u.apellido}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className="p-3 bg-secondary rounded-lg">
+                  <p className="text-sm text-muted-foreground">
+                    ℹ️ La asignación de vehículo y responsable se realiza desde el módulo <strong>Delivery</strong>
+                  </p>
                 </div>
               )}
             </div>
