@@ -1893,17 +1893,8 @@ async def actualizar_estado_entrega(entrega_id: int, estado: str, db: AsyncSessi
     return {"message": "Estado actualizado"}
 
 @api_router.delete("/entregas/{entrega_id}")
-async def eliminar_entrega(
-    entrega_id: int, 
-    db: AsyncSession = Depends(get_db),
-    current_user: Usuario = Depends(get_current_usuario)
-):
-    """Delete delivery order - Admin only"""
-    # Check permission
-    permisos = await get_usuario_permisos(current_user.id, db)
-    if "delivery.eliminar" not in permisos:
-        raise HTTPException(status_code=403, detail="No tiene permiso para eliminar entregas")
-    
+async def eliminar_entrega(entrega_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete delivery order"""
     result = await db.execute(select(Entrega).where(Entrega.id == entrega_id))
     entrega = result.scalar_one_or_none()
     if not entrega:
