@@ -150,6 +150,7 @@ async def seed_database():
             ("delivery.ver", "Ver entregas"),
             ("delivery.crear", "Crear entregas"),
             ("delivery.actualizar_estado", "Actualizar estado de entregas"),
+            ("delivery.eliminar", "Eliminar entregas"),
             # Flota
             ("flota.ver", "Ver flota"),
             ("flota.gestionar", "Gestionar vehículos"),

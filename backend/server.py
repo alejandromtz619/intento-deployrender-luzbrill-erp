@@ -1377,6 +1377,17 @@ async def anular_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Venta no encontrada")
     
     venta.estado = EstadoVenta.ANULADA
+    
+    # Si tiene entrega asociada, cancelarla o eliminarla
+    entrega_result = await db.execute(select(Entrega).where(Entrega.venta_id == venta_id))
+    entrega = entrega_result.scalar_one_or_none()
+    if entrega:
+        # Si está pendiente, eliminarla; si ya está en camino, cancelarla
+        if entrega.estado == EstadoEntrega.PENDIENTE:
+            await db.delete(entrega)
+        else:
+            entrega.estado = EstadoEntrega.CANCELADO
+    
     await db.commit()
     await db.refresh(venta)
     return venta
@@ -1804,6 +1815,27 @@ async def actualizar_estado_entrega(entrega_id: int, estado: str, db: AsyncSessi
     entrega.estado = EstadoEntrega(estado)
     await db.commit()
     return {"message": "Estado actualizado"}
+
+@api_router.delete("/entregas/{entrega_id}")
+async def eliminar_entrega(
+    entrega_id: int, 
+    db: AsyncSession = Depends(get_db),
+    current_user: Usuario = Depends(get_current_usuario)
+):
+    """Delete delivery order - Admin only"""
+    # Check permission
+    permisos = await get_usuario_permisos(current_user.id, db)
+    if "delivery.eliminar" not in permisos:
+        raise HTTPException(status_code=403, detail="No tiene permiso para eliminar entregas")
+    
+    result = await db.execute(select(Entrega).where(Entrega.id == entrega_id))
+    entrega = result.scalar_one_or_none()
+    if not entrega:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    
+    await db.delete(entrega)
+    await db.commit()
+    return {"message": "Entrega eliminada"}
 
 # ==================== FACTURAS ====================
 @api_router.post("/facturas", response_model=FacturaResponse)

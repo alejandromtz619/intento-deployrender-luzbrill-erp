@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
-import { Truck, Loader2, Filter, User, Phone, Package, MapPin, Edit } from 'lucide-react';
+import { Truck, Loader2, Filter, User, Phone, Package, MapPin, Edit, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 
@@ -41,7 +41,7 @@ const estadoColors = {
 };
 
 const Delivery = () => {
-  const { api, empresa } = useApp();
+  const { api, empresa, userPermisos } = useApp();
   const [entregas, setEntregas] = useState([]);
   const [vehiculos, setVehiculos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
@@ -169,6 +169,26 @@ const Delivery = () => {
           fetchData();
         } catch (e) {
           toast.error('Error al actualizar estado');
+        }
+      }
+    });
+    setConfirmDialogOpen(true);
+  };
+
+  const handleEliminarEntrega = () => {
+    setAccionConfirmar({
+      titulo: '¿Eliminar orden de delivery?',
+      descripcion: 'Esta acción no se puede deshacer. La venta asociada no será eliminada.',
+      accion: async () => {
+        try {
+          await api(`/entregas/${entregaSeleccionada.id}`, {
+            method: 'DELETE'
+          });
+          toast.success('Orden de delivery eliminada');
+          setModalOpen(false);
+          fetchData();
+        } catch (e) {
+          toast.error(e.message || 'Error al eliminar entrega');
         }
       }
     });
@@ -549,6 +569,16 @@ const Delivery = () => {
             <Button variant="outline" onClick={() => setModalOpen(false)}>
               Cerrar
             </Button>
+            {userPermisos.includes('delivery.eliminar') && (
+              <Button 
+                variant="destructive" 
+                onClick={handleEliminarEntrega}
+                className="mr-auto"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Eliminar
+              </Button>
+            )}
             {entregaSeleccionada?.estado === 'PENDIENTE' && (
               <Button onClick={handleAsignar}>
                 Asignar y Enviar

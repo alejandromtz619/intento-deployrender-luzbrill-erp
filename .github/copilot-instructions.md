@@ -73,6 +73,8 @@ yarn start
 - **Assignment**: Updates `Entrega` with `vehiculo_id` and `responsable_usuario_id` via `/entregas/{id}/asignar`
 - **Status flow**: PENDIENTE → EN_CAMINO (on assign) → ENTREGADO
 - **Filters**: Date range, vehicle, responsable, status
+- **Delete**: Admin-only permission `delivery.eliminar` to remove delivery orders
+- **Auto-cancel**: When a sale is voided, associated delivery is auto-canceled/deleted
 
 ### Stock System - [server.py](../backend/server.py#L1500-L1800)
 - **Multi-warehouse**: `StockActual` tracks quantity per `almacen_id` + `producto_id`
