@@ -123,9 +123,17 @@ const HistorialVentas = () => {
     setTimeout(fetchVentas, 100);
   };
 
-  const handleViewDetail = (venta) => {
-    setSelectedVenta(venta);
+  const handleViewDetail = async (venta) => {
     setDetailDialogOpen(true);
+    setSelectedVenta(venta); // Show modal with current data first
+    
+    // Fetch fresh data from backend with product/materia names
+    try {
+      const freshData = await api(`/ventas/${venta.id}`);
+      setSelectedVenta(freshData);
+    } catch (e) {
+      console.error('Error fetching venta detail:', e);
+    }
   };
 
   const handlePrint = (ventaId) => {
