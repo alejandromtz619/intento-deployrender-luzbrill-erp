@@ -2271,17 +2271,15 @@ async def obtener_ventas_por_periodo(
         fecha_inicio = today - timedelta(days=29)
         fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
         
+        base_filters.append(Venta.creado_en >= fecha_inicio_dt)
+        
         result = await db.execute(
             select(
                 func_sql.date(Venta.creado_en).label('fecha'),
                 func_sql.count(Venta.id).label('cantidad'),
                 func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
             )
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by(func_sql.date(Venta.creado_en))
             .order_by('fecha')
         )
@@ -2294,11 +2292,7 @@ async def obtener_ventas_por_periodo(
                 func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
             )
             .join(VentaItem, VentaItem.venta_id == Venta.id)
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by(func_sql.date(Venta.creado_en))
         )
         unidades_dict = {row[0]: int(row[1] or 0) for row in unidades_result.all()}
@@ -2318,6 +2312,8 @@ async def obtener_ventas_por_periodo(
         fecha_inicio = today - timedelta(days=90)
         fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
         
+        base_filters.append(Venta.creado_en >= fecha_inicio_dt)
+        
         result = await db.execute(
             select(
                 func_sql.extract('week', Venta.creado_en).label('semana'),
@@ -2325,11 +2321,7 @@ async def obtener_ventas_por_periodo(
                 func_sql.count(Venta.id).label('cantidad'),
                 func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
             )
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by('semana', 'anio')
             .order_by('anio', 'semana')
         )
@@ -2342,11 +2334,7 @@ async def obtener_ventas_por_periodo(
                 func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
             )
             .join(VentaItem, VentaItem.venta_id == Venta.id)
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by('semana', 'anio')
         )
         unidades_dict = {(int(row[0]), int(row[1])): int(row[2] or 0) for row in unidades_result.all()}
@@ -2366,6 +2354,8 @@ async def obtener_ventas_por_periodo(
         fecha_inicio = today - timedelta(days=180)
         fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
         
+        base_filters.append(Venta.creado_en >= fecha_inicio_dt)
+        
         result = await db.execute(
             select(
                 func_sql.extract('month', Venta.creado_en).label('mes'),
@@ -2373,11 +2363,7 @@ async def obtener_ventas_por_periodo(
                 func_sql.count(Venta.id).label('cantidad'),
                 func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
             )
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by('mes', 'anio')
             .order_by('anio', 'mes')
         )
@@ -2390,11 +2376,7 @@ async def obtener_ventas_por_periodo(
                 func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
             )
             .join(VentaItem, VentaItem.venta_id == Venta.id)
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by('mes', 'anio')
         )
         unidades_dict = {(int(row[0]), int(row[1])): int(row[2] or 0) for row in unidades_result.all()}
@@ -2415,6 +2397,8 @@ async def obtener_ventas_por_periodo(
         fecha_inicio = today - timedelta(days=365)
         fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
         
+        base_filters.append(Venta.creado_en >= fecha_inicio_dt)
+        
         result = await db.execute(
             select(
                 func_sql.extract('month', Venta.creado_en).label('mes'),
@@ -2422,11 +2406,7 @@ async def obtener_ventas_por_periodo(
                 func_sql.count(Venta.id).label('cantidad'),
                 func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
             )
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by('mes', 'anio')
             .order_by('anio', 'mes')
         )
@@ -2439,11 +2419,7 @@ async def obtener_ventas_por_periodo(
                 func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
             )
             .join(VentaItem, VentaItem.venta_id == Venta.id)
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by('mes', 'anio')
         )
         unidades_dict = {(int(row[0]), int(row[1])): int(row[2] or 0) for row in unidades_result.all()}
