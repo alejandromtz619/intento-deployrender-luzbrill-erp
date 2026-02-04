@@ -55,6 +55,8 @@ const Usuarios = () => {
         api(`/usuarios?empresa_id=${empresa.id}`),
         api(`/roles?empresa_id=${empresa.id}`)
       ]);
+      console.log('Usuarios recibidos:', usuariosData);
+      console.log('Roles recibidos:', rolesData);
       setUsuarios(usuariosData);
       setRoles(rolesData);
     } catch (e) {
