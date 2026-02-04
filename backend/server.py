@@ -1327,6 +1327,7 @@ async def listar_ventas(
                 prod_result = await db.execute(select(Producto).where(Producto.id == item.producto_id))
                 producto = prod_result.scalar_one_or_none()
                 if producto:
+                    item_dict['producto_nombre'] = producto.nombre
                     item_dict['descripcion'] = producto.nombre
             
             # Get materia name
@@ -1334,6 +1335,7 @@ async def listar_ventas(
                 mat_result = await db.execute(select(MateriaLaboratorio).where(MateriaLaboratorio.id == item.materia_laboratorio_id))
                 materia = mat_result.scalar_one_or_none()
                 if materia:
+                    item_dict['materia_nombre'] = materia.nombre
                     item_dict['descripcion'] = f"{materia.nombre} - {materia.descripcion or ''}"
             
             items.append(item_dict)
@@ -1361,7 +1363,30 @@ async def obtener_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
     items_result = await db.execute(
         select(VentaItem).where(VentaItem.venta_id == venta.id)
     )
-    items = [VentaItemResponse.model_validate(i) for i in items_result.scalars().all()]
+    raw_items = items_result.scalars().all()
+    
+    # Enrich items with product/materia names
+    items = []
+    for item in raw_items:
+        item_dict = VentaItemResponse.model_validate(item).model_dump()
+        
+        # Get product name
+        if item.producto_id:
+            prod_result = await db.execute(select(Producto).where(Producto.id == item.producto_id))
+            producto = prod_result.scalar_one_or_none()
+            if producto:
+                item_dict['producto_nombre'] = producto.nombre
+                item_dict['descripcion'] = producto.nombre
+        
+        # Get materia name
+        elif item.materia_laboratorio_id:
+            mat_result = await db.execute(select(MateriaLaboratorio).where(MateriaLaboratorio.id == item.materia_laboratorio_id))
+            materia = mat_result.scalar_one_or_none()
+            if materia:
+                item_dict['materia_nombre'] = materia.nombre
+                item_dict['descripcion'] = f"{materia.nombre} - {materia.descripcion or ''}"
+        
+        items.append(item_dict)
     
     venta_dict = VentaResponse.model_validate(venta).model_dump()
     venta_dict['items'] = items
