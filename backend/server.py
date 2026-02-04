@@ -1376,9 +1376,89 @@ async def anular_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
     if not venta:
         raise HTTPException(status_code=404, detail="Venta no encontrada")
     
+    if venta.estado == EstadoVenta.ANULADA:
+        raise HTTPException(status_code=400, detail="La venta ya está anulada")
+    
+    # 1. Devolver stock de productos
+    items_result = await db.execute(
+        select(VentaItem).where(VentaItem.venta_id == venta_id)
+    )
+    items = items_result.scalars().all()
+    
+    for item in items:
+        if item.producto_id:
+            # Crear movimiento de entrada (devolución)
+            # Buscar el almacen principal (primer almacen de la empresa)
+            almacen_result = await db.execute(
+                select(Almacen).where(Almacen.empresa_id == venta.empresa_id).limit(1)
+            )
+            almacen = almacen_result.scalar_one_or_none()
+            
+            if almacen:
+                # Actualizar stock
+                stock_result = await db.execute(
+                    select(StockActual).where(
+                        StockActual.producto_id == item.producto_id,
+                        StockActual.almacen_id == almacen.id
+                    )
+                )
+                stock = stock_result.scalar_one_or_none()
+                
+                if stock:
+                    stock.cantidad += item.cantidad
+                else:
+                    # Crear stock si no existe
+                    stock = StockActual(
+                        producto_id=item.producto_id,
+                        almacen_id=almacen.id,
+                        cantidad=item.cantidad
+                    )
+                    db.add(stock)
+                
+                # Registrar movimiento
+                movimiento = MovimientoStock(
+                    almacen_id=almacen.id,
+                    producto_id=item.producto_id,
+                    tipo=TipoMovimientoStock.ENTRADA,
+                    cantidad=item.cantidad,
+                    motivo=f"Devolución por anulación de venta #{venta_id}"
+                )
+                db.add(movimiento)
+        
+        elif item.materia_laboratorio_id:
+            # Devolver materia de laboratorio a estado DISPONIBLE
+            materia_result = await db.execute(
+                select(MateriaLaboratorio).where(MateriaLaboratorio.id == item.materia_laboratorio_id)
+            )
+            materia = materia_result.scalar_one_or_none()
+            if materia:
+                materia.estado = EstadoMateria.DISPONIBLE
+    
+    # 2. Devolver crédito si fue venta a crédito
+    if venta.tipo_pago == TipoPago.CREDITO:
+        credito_result = await db.execute(
+            select(CreditoCliente).where(CreditoCliente.venta_id == venta_id)
+        )
+        credito = credito_result.scalar_one_or_none()
+        if credito:
+            # Eliminar el crédito (o marcarlo como anulado si tiene pagos)
+            pagos_result = await db.execute(
+                select(PagoCredito).where(PagoCredito.credito_id == credito.id)
+            )
+            pagos = pagos_result.scalars().all()
+            
+            if pagos:
+                # Si tiene pagos, marcar como anulado pero mantener el registro
+                credito.monto_pendiente = 0
+                credito.descripcion += " (ANULADO)"
+            else:
+                # Si no tiene pagos, eliminar el crédito
+                await db.delete(credito)
+    
+    # 3. Marcar venta como anulada
     venta.estado = EstadoVenta.ANULADA
     
-    # Si tiene entrega asociada, cancelarla o eliminarla
+    # 4. Si tiene entrega asociada, cancelarla o eliminarla
     entrega_result = await db.execute(select(Entrega).where(Entrega.venta_id == venta_id))
     entrega = entrega_result.scalar_one_or_none()
     if entrega:
@@ -2084,19 +2164,43 @@ async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Dep
 async def obtener_ventas_por_periodo(
     empresa_id: int,
     periodo: str = "dia",
+    tipo_pago: Optional[str] = None,  # 'credito', 'contado', o None para todos
     db: AsyncSession = Depends(get_db)
 ):
     """
     Obtener ventas agrupadas por período
     periodo: dia, semana, mes, trimestre, semestre, anio
+    tipo_pago: credito (solo CREDITO), contado (EFECTIVO, CHEQUE, TRANSFERENCIA, TARJETA), None (todos)
     """
     now = datetime.now(timezone.utc)
     today = now.date()
+    
+    # Build base filters
+    base_filters = [
+        Venta.empresa_id == empresa_id,
+        Venta.estado == EstadoVenta.CONFIRMADA
+    ]
+    
+    # Add tipo_pago filter
+    if tipo_pago == 'credito':
+        base_filters.append(Venta.tipo_pago == TipoPago.CREDITO)
+    elif tipo_pago == 'contado':
+        base_filters.append(Venta.tipo_pago.in_([
+            TipoPago.EFECTIVO,
+            TipoPago.CHEQUE,
+            TipoPago.TRANSFERENCIA,
+            TipoPago.TARJETA
+        ]))
     
     if periodo == "dia":
         # Ventas por hora del día actual
         today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
         today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
+        
+        base_filters.extend([
+            Venta.creado_en >= today_start,
+            Venta.creado_en <= today_end
+        ])
         
         result = await db.execute(
             select(
@@ -2110,12 +2214,7 @@ async def obtener_ventas_por_periodo(
                     .scalar_subquery()
                 ), 0).label('unidades')
             )
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= today_start,
-                Venta.creado_en <= today_end
-            )
+            .where(and_(*base_filters))
             .group_by(func_sql.extract('hour', Venta.creado_en))
             .order_by('hora')
         )
@@ -2129,6 +2228,8 @@ async def obtener_ventas_por_periodo(
         fecha_inicio = today - timedelta(days=6)
         fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
         
+        base_filters.append(Venta.creado_en >= fecha_inicio_dt)
+        
         # Primero obtenemos los datos agregados
         result = await db.execute(
             select(
@@ -2136,11 +2237,7 @@ async def obtener_ventas_por_periodo(
                 func_sql.count(Venta.id).label('cantidad'),
                 func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto')
             )
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by(func_sql.date(Venta.creado_en))
             .order_by('fecha')
         )
@@ -2153,11 +2250,7 @@ async def obtener_ventas_por_periodo(
                 func_sql.coalesce(func_sql.sum(VentaItem.cantidad), 0).label('unidades')
             )
             .join(VentaItem, VentaItem.venta_id == Venta.id)
-            .where(
-                Venta.empresa_id == empresa_id,
-                Venta.estado == EstadoVenta.CONFIRMADA,
-                Venta.creado_en >= fecha_inicio_dt
-            )
+            .where(and_(*base_filters))
             .group_by(func_sql.date(Venta.creado_en))
         )
         unidades_dict = {row[0]: int(row[1] or 0) for row in unidades_result.all()}

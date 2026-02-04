@@ -26,6 +26,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [ventasPeriodo, setVentasPeriodo] = useState('dia');
   const [ventasMetrica, setVentasMetrica] = useState('cantidad');
+  const [ventasTipoPago, setVentasTipoPago] = useState('todos');
   const [ventasData, setVentasData] = useState([]);
   const [loadingVentas, setLoadingVentas] = useState(false);
 
@@ -57,7 +58,11 @@ const Dashboard = () => {
       
       setLoadingVentas(true);
       try {
-        const data = await api(`/dashboard/ventas-periodo?empresa_id=${empresa.id}&periodo=${ventasPeriodo}`);
+        let url = `/dashboard/ventas-periodo?empresa_id=${empresa.id}&periodo=${ventasPeriodo}`;
+        if (ventasTipoPago !== 'todos') {
+          url += `&tipo_pago=${ventasTipoPago}`;
+        }
+        const data = await api(url);
         setVentasData(data || []);
       } catch (e) {
         console.error('Error fetching ventas periodo:', e);
@@ -68,7 +73,7 @@ const Dashboard = () => {
     };
     
     fetchVentasPeriodo();
-  }, [empresa?.id, ventasPeriodo, api]);
+  }, [empresa?.id, ventasPeriodo, ventasTipoPago, api]);
 
   // Generate chart data based on selected period
   const getChartData = () => {
@@ -111,7 +116,7 @@ const Dashboard = () => {
   const getMetricaLabel = () => {
     const labels = {
       'cantidad': 'Cantidad de Ventas',
-      'monto': 'Dinero',
+      'monto': 'Monto',
       'unidades': 'Unidades Vendidas'
     };
     return labels[ventasMetrica] || 'Cantidad de Ventas';
@@ -237,8 +242,18 @@ const Dashboard = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cantidad">Cantidad Ventas</SelectItem>
-                  <SelectItem value="monto">Dinero</SelectItem>
+                  <SelectItem value="monto">Monto</SelectItem>
                   <SelectItem value="unidades">Unidades Vendidas</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={ventasTipoPago} onValueChange={setVentasTipoPago}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="contado">Contado</SelectItem>
+                  <SelectItem value="credito">Crédito</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={ventasPeriodo} onValueChange={setVentasPeriodo}>
