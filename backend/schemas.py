@@ -352,6 +352,9 @@ class VentaItemResponse(VentaItemBase):
     id: int
     venta_id: int
     total: Decimal
+    producto_nombre: Optional[str] = None
+    materia_nombre: Optional[str] = None
+    descripcion: Optional[str] = None
 
 class VentaBase(BaseModel):
     cliente_id: int
