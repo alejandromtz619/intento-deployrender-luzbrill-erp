@@ -2611,23 +2611,36 @@ async def reporte_ventas(
     empresa_id: int,
     fecha_desde: str,
     fecha_hasta: str,
+    tipo_pago: str = None,
+    estado: str = None,
     db: AsyncSession = Depends(get_db)
 ):
-    """Genera reporte PDF de ventas por rango de fechas"""
+    """Genera reporte PDF de ventas por rango de fechas con filtros"""
     fecha_ini = datetime.fromisoformat(fecha_desde)
     fecha_fin = datetime.fromisoformat(fecha_hasta) + timedelta(days=1)
     
-    result = await db.execute(
+    query = (
         select(Venta, Cliente)
         .join(Cliente, Venta.cliente_id == Cliente.id)
         .where(
             Venta.empresa_id == empresa_id,
             Venta.creado_en >= fecha_ini,
-            Venta.creado_en < fecha_fin,
-            Venta.estado == EstadoVenta.CONFIRMADA
+            Venta.creado_en < fecha_fin
         )
-        .order_by(Venta.creado_en)
     )
+    
+    # Apply estado filter (default: CONFIRMADA)
+    if estado:
+        query = query.where(Venta.estado == EstadoVenta[estado])
+    else:
+        query = query.where(Venta.estado == EstadoVenta.CONFIRMADA)
+    
+    # Apply tipo_pago filter
+    if tipo_pago:
+        query = query.where(Venta.tipo_pago == TipoPago[tipo_pago])
+    
+    query = query.order_by(Venta.creado_en)
+    result = await db.execute(query)
     ventas = result.all()
     
     columnas = ['ID', 'Fecha', 'Cliente', 'Tipo Pago', 'Total']
@@ -2646,9 +2659,17 @@ async def reporte_ventas(
     
     totales = ['', '', '', 'TOTAL:', f"{float(total_general):,.0f}"]
     
+    # Build subtitle with filters
+    subtitle = f"Período: {fecha_desde} al {fecha_hasta}"
+    if tipo_pago:
+        subtitle += f" | Pago: {tipo_pago}"
+    if estado:
+        subtitle += f" | Estado: {estado}"
+    subtitle += f" | Total ventas: {len(datos)}"
+    
     pdf_bytes = crear_pdf_reporte(
         "Reporte de Ventas",
-        f"Período: {fecha_desde} al {fecha_hasta} | Total ventas: {len(datos)}",
+        subtitle,
         columnas,
         datos,
         totales
@@ -2661,8 +2682,14 @@ async def reporte_ventas(
     )
 
 @api_router.get("/reportes/stock")
-async def reporte_stock(empresa_id: int, db: AsyncSession = Depends(get_db)):
-    """Genera reporte PDF de stock actual"""
+async def reporte_stock(
+    empresa_id: int,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
+    solo_alertas: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Genera reporte PDF de stock actual con filtros"""
     result = await db.execute(
         select(Producto, func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0).label('stock_total'))
         .outerjoin(StockActual, Producto.id == StockActual.producto_id)
@@ -2677,7 +2704,13 @@ async def reporte_stock(empresa_id: int, db: AsyncSession = Depends(get_db)):
     
     for producto, stock in productos:
         # Check if stock is low (less than 10 units)
-        estado = "⚠️" if stock < 10 else ""
+        es_alerta = stock < 10
+        
+        # Filter by solo_alertas if specified
+        if solo_alertas == 'true' and not es_alerta:
+            continue
+        
+        estado = "⚠️" if es_alerta else ""
         datos.append([
             producto.codigo_barra or '-',
             f"{producto.nombre[:30]}{estado}",
@@ -2685,9 +2718,15 @@ async def reporte_stock(empresa_id: int, db: AsyncSession = Depends(get_db)):
             f"{float(producto.precio_venta):,.0f}"
         ])
     
+    # Build subtitle
+    subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
+    if solo_alertas == 'true':
+        subtitle += " | Solo stock bajo"
+    subtitle += f" | Total productos: {len(datos)}"
+    
     pdf_bytes = crear_pdf_reporte(
         "Reporte de Stock Actual",
-        f"Fecha: {date.today().strftime('%d/%m/%Y')} | Total productos: {len(datos)}",
+        subtitle,
         columnas,
         datos
     )
@@ -2699,14 +2738,39 @@ async def reporte_stock(empresa_id: int, db: AsyncSession = Depends(get_db)):
     )
 
 @api_router.get("/reportes/deudas-proveedores")
-async def reporte_deudas_proveedores(empresa_id: int, db: AsyncSession = Depends(get_db)):
-    """Genera reporte PDF de deudas a proveedores"""
-    result = await db.execute(
+async def reporte_deudas_proveedores(
+    empresa_id: int,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
+    estado: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Genera reporte PDF de deudas a proveedores con filtros"""
+    query = (
         select(DeudaProveedor, Proveedor)
         .join(Proveedor, DeudaProveedor.proveedor_id == Proveedor.id)
-        .where(Proveedor.empresa_id == empresa_id, DeudaProveedor.pagado == False)
-        .order_by(DeudaProveedor.fecha_limite)
+        .where(Proveedor.empresa_id == empresa_id)
     )
+    
+    # Filter by estado (default: PENDIENTE)
+    if estado:
+        if estado == 'PENDIENTE':
+            query = query.where(DeudaProveedor.pagado == False)
+        elif estado == 'PAGADO':
+            query = query.where(DeudaProveedor.pagado == True)
+    else:
+        query = query.where(DeudaProveedor.pagado == False)
+    
+    # Filter by fecha_emision range
+    if fecha_desde:
+        fecha_ini = datetime.fromisoformat(fecha_desde)
+        query = query.where(DeudaProveedor.fecha_emision >= fecha_ini.date())
+    if fecha_hasta:
+        fecha_fin = datetime.fromisoformat(fecha_hasta)
+        query = query.where(DeudaProveedor.fecha_emision <= fecha_fin.date())
+    
+    query = query.order_by(DeudaProveedor.fecha_limite)
+    result = await db.execute(query)
     deudas = result.all()
     
     columnas = ['Proveedor', 'Descripción', 'Monto', 'Emisión', 'Vencimiento']
@@ -2726,9 +2790,17 @@ async def reporte_deudas_proveedores(empresa_id: int, db: AsyncSession = Depends
     
     totales = ['', '', f"{float(total_deuda):,.0f}", '', '']
     
+    # Build subtitle
+    subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
+    if fecha_desde and fecha_hasta:
+        subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
+    if estado:
+        subtitle += f" | Estado: {estado}"
+    subtitle += f" | Total deudas: {len(datos)}"
+    
     pdf_bytes = crear_pdf_reporte(
         "Reporte de Deudas a Proveedores",
-        f"Fecha: {date.today().strftime('%d/%m/%Y')} | Deudas pendientes: {len(datos)}",
+        subtitle,
         columnas,
         datos,
         totales
@@ -2741,14 +2813,39 @@ async def reporte_deudas_proveedores(empresa_id: int, db: AsyncSession = Depends
     )
 
 @api_router.get("/reportes/creditos-clientes")
-async def reporte_creditos_clientes(empresa_id: int, db: AsyncSession = Depends(get_db)):
-    """Genera reporte PDF de créditos de clientes pendientes"""
-    result = await db.execute(
+async def reporte_creditos_clientes(
+    empresa_id: int,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
+    estado: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Genera reporte PDF de créditos de clientes con filtros"""
+    query = (
         select(CreditoCliente, Cliente)
         .join(Cliente, CreditoCliente.cliente_id == Cliente.id)
-        .where(Cliente.empresa_id == empresa_id, CreditoCliente.pagado == False)
-        .order_by(CreditoCliente.fecha_venta)
+        .where(Cliente.empresa_id == empresa_id)
     )
+    
+    # Filter by estado (default: PENDIENTE)
+    if estado:
+        if estado == 'PENDIENTE':
+            query = query.where(CreditoCliente.pagado == False)
+        elif estado == 'PAGADO':
+            query = query.where(CreditoCliente.pagado == True)
+    else:
+        query = query.where(CreditoCliente.pagado == False)
+    
+    # Filter by fecha_venta range
+    if fecha_desde:
+        fecha_ini = datetime.fromisoformat(fecha_desde)
+        query = query.where(CreditoCliente.fecha_venta >= fecha_ini.date())
+    if fecha_hasta:
+        fecha_fin = datetime.fromisoformat(fecha_hasta)
+        query = query.where(CreditoCliente.fecha_venta <= fecha_fin.date())
+    
+    query = query.order_by(CreditoCliente.fecha_venta)
+    result = await db.execute(query)
     creditos = result.all()
     
     columnas = ['Cliente', 'Venta #', 'Original', 'Pendiente', 'Fecha']
@@ -2767,9 +2864,17 @@ async def reporte_creditos_clientes(empresa_id: int, db: AsyncSession = Depends(
     
     totales = ['', '', 'TOTAL:', f"{float(total_pendiente):,.0f}", '']
     
+    # Build subtitle
+    subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
+    if fecha_desde and fecha_hasta:
+        subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
+    if estado:
+        subtitle += f" | Estado: {estado}"
+    subtitle += f" | Total créditos: {len(datos)}"
+    
     pdf_bytes = crear_pdf_reporte(
         "Reporte de Créditos de Clientes",
-        f"Fecha: {date.today().strftime('%d/%m/%Y')} | Créditos pendientes: {len(datos)}",
+        subtitle,
         columnas,
         datos,
         totales

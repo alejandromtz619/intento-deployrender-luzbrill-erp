@@ -71,6 +71,11 @@ const Ventas = () => {
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [lastVentaId, setLastVentaId] = useState(null);
   
+  // Cash payment modal state
+  const [cashModalOpen, setCashModalOpen] = useState(false);
+  const [montoPagado, setMontoPagado] = useState('');
+  const [vuelto, setVuelto] = useState(0);
+  
   // Load data
   useEffect(() => {
     const fetchData = async () => {
@@ -241,7 +246,17 @@ const Ventas = () => {
     }).format(value);
   };
 
-  const handleSubmit = async () => {
+  // Calculate change when cash amount changes
+  useEffect(() => {
+    if (montoPagado && !isNaN(montoPagado)) {
+      const cambio = parseFloat(montoPagado) - total;
+      setVuelto(cambio > 0 ? cambio : 0);
+    } else {
+      setVuelto(0);
+    }
+  }, [montoPagado, total]);
+
+  const handleConfirmarVentaClick = () => {
     if (!selectedCliente) {
       toast.error('Seleccione un cliente');
       return;
@@ -258,7 +273,20 @@ const Ventas = () => {
       return;
     }
     
+    // If cash payment, open cash modal
+    if (tipoPago === 'EFECTIVO') {
+      setMontoPagado('');
+      setVuelto(0);
+      setCashModalOpen(true);
+    } else {
+      // For other payment types, proceed directly
+      handleSubmit();
+    }
+  };
+
+  const handleSubmit = async () => {
     setSubmitting(true);
+    setCashModalOpen(false);
     try {
       // Create sale
       const ventaData = {
@@ -719,7 +747,7 @@ const Ventas = () => {
               className="w-full" 
               size="lg"
               disabled={!selectedCliente || cart.length === 0 || submitting}
-              onClick={handleSubmit}
+              onClick={handleConfirmarVentaClick}
               data-testid="confirmar-venta-btn"
             >
               {submitting ? (
@@ -738,6 +766,88 @@ const Ventas = () => {
         </Card>
       </div>
       
+      {/* Cash Payment Modal */}
+      <Dialog open={cashModalOpen} onOpenChange={setCashModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5" />
+              Pago en Efectivo
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6">
+            {/* Total to Pay */}
+            <div className="p-4 bg-primary/10 rounded-lg border-2 border-primary/20">
+              <p className="text-sm text-muted-foreground mb-1">Total a Pagar</p>
+              <p className="text-3xl font-bold font-mono-data text-primary">
+                {formatCurrency(total)}
+              </p>
+            </div>
+
+            {/* Amount Paid Input */}
+            <div className="space-y-2">
+              <Label htmlFor="montoPagado">Monto que Paga el Cliente</Label>
+              <Input
+                id="montoPagado"
+                type="number"
+                placeholder="Ej: 200000"
+                value={montoPagado}
+                onChange={(e) => setMontoPagado(e.target.value)}
+                className="text-lg font-mono-data text-right"
+                autoFocus
+              />
+            </div>
+
+            {/* Change Display */}
+            {montoPagado && parseFloat(montoPagado) >= total && (
+              <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border-2 border-green-500/30">
+                <p className="text-sm text-muted-foreground mb-1">Vuelto</p>
+                <p className="text-3xl font-bold font-mono-data text-green-600 dark:text-green-400">
+                  {formatCurrency(vuelto)}
+                </p>
+              </div>
+            )}
+
+            {/* Warning if insufficient */}
+            {montoPagado && parseFloat(montoPagado) < total && (
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-300 dark:border-red-800">
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  ⚠️ El monto es insuficiente. Falta: {formatCurrency(total - parseFloat(montoPagado))}
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setCashModalOpen(false)}
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={!montoPagado || parseFloat(montoPagado) < total || submitting}
+                className="flex-1"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <Check className="mr-2 h-4 w-4" />
+                    Aceptar Venta
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Print Modal */}
       <PrintModal 
         open={printModalOpen} 
