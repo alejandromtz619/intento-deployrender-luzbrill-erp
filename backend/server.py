@@ -1458,15 +1458,11 @@ async def anular_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
     # 3. Marcar venta como anulada
     venta.estado = EstadoVenta.ANULADA
     
-    # 4. Si tiene entrega asociada, cancelarla o eliminarla
+    # 4. Si tiene entrega asociada, siempre eliminarla (al anular venta)
     entrega_result = await db.execute(select(Entrega).where(Entrega.venta_id == venta_id))
     entrega = entrega_result.scalar_one_or_none()
     if entrega:
-        # Si está pendiente, eliminarla; si ya está en camino, cancelarla
-        if entrega.estado == EstadoEntrega.PENDIENTE:
-            await db.delete(entrega)
-        else:
-            entrega.estado = EstadoEntrega.CANCELADO
+        await db.delete(entrega)
     
     await db.commit()
     await db.refresh(venta)
