@@ -6,7 +6,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { LayoutDashboard, ShoppingCart, Truck } from 'lucide-react';
 
 const Home = () => {
-  const { user, empresa } = useApp();
+  const { user, empresa, userPermisos } = useApp();
   const navigate = useNavigate();
 
   const mainModules = [
@@ -16,7 +16,8 @@ const Home = () => {
       icon: LayoutDashboard,
       title: 'Dashboard',
       description: 'Estadísticas, gráficos y alertas del sistema',
-      color: 'from-blue-500 to-blue-600'
+      color: 'from-blue-500 to-blue-600',
+      permission: null // Todos pueden ver
     },
     {
       id: 'ventas',
@@ -24,7 +25,8 @@ const Home = () => {
       icon: ShoppingCart,
       title: 'Ventas',
       description: 'Crear y gestionar ventas, facturación',
-      color: 'from-green-500 to-green-600'
+      color: 'from-green-500 to-green-600',
+      permission: 'ventas.crear'
     },
     {
       id: 'delivery',
@@ -32,9 +34,16 @@ const Home = () => {
       icon: Truck,
       title: 'Delivery',
       description: 'Gestión de entregas y pedidos',
-      color: 'from-orange-500 to-orange-600'
+      color: 'from-orange-500 to-orange-600',
+      permission: 'delivery.ver'
     }
   ];
+
+  // Filter modules by user permissions
+  const visibleModules = mainModules.filter(module => {
+    if (!module.permission) return true; // No permission required
+    return userPermisos.includes(module.permission);
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-4 sm:p-8">
@@ -54,7 +63,7 @@ const Home = () => {
 
         {/* Main Modules Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          {mainModules.map((module) => (
+          {visibleModules.map((module) => (
             <Card 
               key={module.id}
               className="group cursor-pointer overflow-hidden hover:shadow-xl transition-all duration-300"
@@ -74,7 +83,11 @@ const Home = () => {
 
         {/* Quick Info */}
         <div className="mt-12 text-center text-muted-foreground text-sm">
-          <p>Seleccione un módulo para comenzar</p>
+          {visibleModules.length > 0 ? (
+            <p>Seleccione un módulo para comenzar</p>
+          ) : (
+            <p>No tienes acceso a ningún módulo principal. Contacta al administrador.</p>
+          )}
         </div>
       </div>
     </div>
