@@ -415,7 +415,7 @@ const HistorialVentas = () => {
                     {selectedVenta.items?.map((item, idx) => (
                       <TableRow key={idx}>
                         <TableCell>{item.cantidad}</TableCell>
-                        <TableCell>{item.descripcion || `Producto #${item.producto_id || item.materia_id}`}</TableCell>
+                        <TableCell>{item.producto_nombre || item.materia_nombre || item.descripcion || `Producto #${item.producto_id || item.materia_laboratorio_id}`}</TableCell>
                         <TableCell className="text-right font-mono-data">
                           {formatCurrency(item.precio_unitario)}
                         </TableCell>

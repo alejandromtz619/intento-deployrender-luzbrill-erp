@@ -1388,40 +1388,47 @@ async def anular_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
         
         for item in items:
             if item.producto_id:
-                # Crear movimiento de entrada (devolución)
-                # Buscar el almacen principal (primer almacen de la empresa)
-                almacen_result = await db.execute(
-                    select(Almacen).where(Almacen.empresa_id == venta.empresa_id).limit(1)
+                # Buscar los movimientos de SALIDA de esta venta para devolver al mismo almacén
+                movimientos_salida_result = await db.execute(
+                    select(MovimientoStock).where(
+                        MovimientoStock.referencia_tipo == 'venta',
+                        MovimientoStock.referencia_id == venta_id,
+                        MovimientoStock.producto_id == item.producto_id,
+                        MovimientoStock.tipo == TipoMovimientoStock.SALIDA
+                    )
                 )
-                almacen = almacen_result.scalar_one_or_none()
+                movimientos_salida = movimientos_salida_result.scalars().all()
                 
-                if almacen:
+                # Devolver stock a los almacenes originales
+                for mov_salida in movimientos_salida:
                     # Actualizar stock
                     stock_result = await db.execute(
                         select(StockActual).where(
                             StockActual.producto_id == item.producto_id,
-                            StockActual.almacen_id == almacen.id
+                            StockActual.almacen_id == mov_salida.almacen_id
                         )
                     )
                     stock = stock_result.scalar_one_or_none()
                     
+                    cantidad_devolver = abs(mov_salida.cantidad)
+                    
                     if stock:
-                        stock.cantidad += item.cantidad
+                        stock.cantidad += cantidad_devolver
                     else:
                         # Crear stock si no existe
                         stock = StockActual(
                             producto_id=item.producto_id,
-                            almacen_id=almacen.id,
-                            cantidad=item.cantidad
+                            almacen_id=mov_salida.almacen_id,
+                            cantidad=cantidad_devolver
                         )
                         db.add(stock)
                     
-                    # Registrar movimiento
+                    # Registrar movimiento de ENTRADA (devolución)
                     movimiento = MovimientoStock(
-                        almacen_id=almacen.id,
+                        almacen_id=mov_salida.almacen_id,
                         producto_id=item.producto_id,
                         tipo=TipoMovimientoStock.ENTRADA,
-                        cantidad=item.cantidad,
+                        cantidad=cantidad_devolver,
                         referencia_tipo="ANULACION_VENTA",
                         referencia_id=venta_id
                     )

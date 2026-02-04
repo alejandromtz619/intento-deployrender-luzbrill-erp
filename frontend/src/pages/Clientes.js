@@ -453,7 +453,7 @@ const Clientes = () => {
           <Separator />
           
           {/* Créditos List */}
-          <ScrollArea className="flex-1">
+          <ScrollArea className="h-96">
             <div className="space-y-3 pr-4">
               {creditos.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">
