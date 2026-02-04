@@ -9,7 +9,7 @@ import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 const Login = () => {
-  const { login, empresa } = useApp();
+  const { login } = useApp();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -45,13 +45,7 @@ const Login = () => {
       <Card className="w-full max-w-md bg-white/95 backdrop-blur shadow-2xl" data-testid="login-card">
         <CardHeader className="text-center">
           <div className="mx-auto w-16 h-16 rounded-xl bg-primary flex items-center justify-center mb-4">
-            {empresa?.logo_url ? (
-              <img src={empresa.logo_url} alt={empresa.nombre} className="w-full h-full object-contain p-2" />
-            ) : (
-              <span className="text-2xl font-bold text-white font-['Manrope']">
-                {empresa?.nombre?.substring(0, 2).toUpperCase() || 'LB'}
-              </span>
-            )}
+            <span className="text-2xl font-bold text-white font-['Manrope']">LB</span>
           </div>
           <CardTitle className="text-2xl font-bold">Luz Brill ERP</CardTitle>
           <CardDescription>Ingrese sus credenciales para continuar</CardDescription>
