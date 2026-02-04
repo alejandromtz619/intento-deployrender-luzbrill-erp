@@ -463,8 +463,11 @@ class EntregaResponse(EntregaBase):
 
 class EntregaConDetalles(EntregaResponse):
     cliente_nombre: Optional[str] = None
+    cliente_telefono: Optional[str] = None
+    cliente_direccion: Optional[str] = None
     vehiculo_chapa: Optional[str] = None
     responsable_nombre: Optional[str] = None
+    items: Optional[List[dict]] = []
 
 # Factura
 class FacturaBase(BaseModel):

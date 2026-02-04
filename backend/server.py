@@ -1729,14 +1729,48 @@ async def listar_entregas(
     if estado:
         query = query.where(Entrega.estado == EstadoEntrega(estado))
     
-    result = await db.execute(query.order_by(Entrega.fecha_entrega.desc()))
+    result = await db.execute(query.order_by(Entrega.id.desc()))
     entregas = []
     for row in result.all():
         entrega, venta, cliente, vehiculo, usuario = row
+        
+        # Load venta items with product/materia names
+        items_result = await db.execute(
+            select(VentaItem).where(VentaItem.venta_id == venta.id)
+        )
+        items = []
+        for item in items_result.scalars().all():
+            item_dict = {
+                'cantidad': item.cantidad,
+                'precio_unitario': float(item.precio_unitario),
+                'total': float(item.total),
+                'producto_nombre': None,
+                'materia_nombre': None
+            }
+            
+            # Get product name
+            if item.producto_id:
+                prod_result = await db.execute(select(Producto).where(Producto.id == item.producto_id))
+                producto = prod_result.scalar_one_or_none()
+                if producto:
+                    item_dict['producto_nombre'] = producto.nombre
+            
+            # Get materia name
+            elif item.materia_laboratorio_id:
+                mat_result = await db.execute(select(MateriaLaboratorio).where(MateriaLaboratorio.id == item.materia_laboratorio_id))
+                materia = mat_result.scalar_one_or_none()
+                if materia:
+                    item_dict['materia_nombre'] = materia.nombre
+            
+            items.append(item_dict)
+        
         entrega_dict = EntregaResponse.model_validate(entrega).model_dump()
         entrega_dict['cliente_nombre'] = f"{cliente.nombre} {cliente.apellido or ''}"
+        entrega_dict['cliente_telefono'] = cliente.telefono
+        entrega_dict['cliente_direccion'] = cliente.direccion
         entrega_dict['vehiculo_chapa'] = vehiculo.chapa if vehiculo else None
         entrega_dict['responsable_nombre'] = f"{usuario.nombre} {usuario.apellido or ''}" if usuario else None
+        entrega_dict['items'] = items
         entregas.append(EntregaConDetalles(**entrega_dict))
     
     return entregas

@@ -104,16 +104,31 @@ const Delivery = () => {
     setVehiculoId(entrega.vehiculo_id?.toString() || '');
     setResponsableId(entrega.responsable_usuario_id?.toString() || '');
     
-    // Fetch venta details
-    setLoadingDetalles(true);
+    // Open modal - data already loaded from entregas endpoint
+    setLoadingDetalles(false);
     setModalOpen(true);
-    try {
-      const detalles = await api(`/ventas/${entrega.venta_id}`);
-      setVentaDetalles(detalles);
-    } catch (e) {
-      toast.error('Error al cargar detalles');
-    } finally {
-      setLoadingDetalles(false);
+    
+    // Use entrega items if available, otherwise fetch venta details
+    if (!entrega.items || entrega.items.length === 0) {
+      setLoadingDetalles(true);
+      try {
+        const detalles = await api(`/ventas/${entrega.venta_id}`);
+        setVentaDetalles(detalles);
+      } catch (e) {
+        toast.error('Error al cargar detalles');
+      } finally {
+        setLoadingDetalles(false);
+      }
+    } else {
+      // Use entrega data as venta details
+      setVentaDetalles({
+        id: entrega.venta_id,
+        total: entrega.items.reduce((sum, item) => sum + item.total, 0),
+        items: entrega.items,
+        cliente_nombre: entrega.cliente_nombre,
+        cliente_telefono: entrega.cliente_telefono,
+        cliente_direccion: entrega.cliente_direccion
+      });
     }
   };
 

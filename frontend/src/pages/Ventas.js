@@ -282,21 +282,8 @@ const Ventas = () => {
         body: JSON.stringify(ventaData)
       });
       
-      // Confirm sale
+      // Confirm sale (this creates the delivery entry if es_delivery=true)
       await api(`/ventas/${venta.id}/confirmar`, { method: 'POST' });
-      
-      // Create delivery entry if marked as delivery (assignment happens in Delivery module)
-      if (esDelivery) {
-        await api('/entregas', {
-          method: 'POST',
-          body: JSON.stringify({
-            venta_id: venta.id,
-            vehiculo_id: null,
-            responsable_usuario_id: null,
-            fecha_entrega: new Date().toISOString()
-          })
-        });
-      }
       
       toast.success(esDelivery ? 'Venta creada - Asigne delivery desde el módulo Delivery' : 'Venta creada exitosamente');
       
