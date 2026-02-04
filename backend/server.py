@@ -248,9 +248,29 @@ async def obtener_usuario_actual(usuario_id: int, db: AsyncSession = Depends(get
 @api_router.get("/usuarios", response_model=List[UsuarioResponse])
 async def listar_usuarios(empresa_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Usuario).where(Usuario.empresa_id == empresa_id, Usuario.activo == True)
+        select(Usuario)
+        .options(selectinload(Usuario.roles))
+        .where(Usuario.empresa_id == empresa_id, Usuario.activo == True)
     )
-    return result.scalars().all()
+    usuarios = result.scalars().all()
+    
+    # Agregar rol_id desde la relación usuario_roles
+    usuarios_response = []
+    for usuario in usuarios:
+        usuario_dict = {
+            "id": usuario.id,
+            "empresa_id": usuario.empresa_id,
+            "email": usuario.email,
+            "nombre": usuario.nombre,
+            "apellido": usuario.apellido,
+            "telefono": usuario.telefono,
+            "activo": usuario.activo,
+            "creado_en": usuario.creado_en,
+            "rol_id": usuario.roles[0].rol_id if usuario.roles else None
+        }
+        usuarios_response.append(usuario_dict)
+    
+    return usuarios_response
 
 @api_router.get("/usuarios/{usuario_id}", response_model=UsuarioResponse)
 async def obtener_usuario(usuario_id: int, db: AsyncSession = Depends(get_db)):
