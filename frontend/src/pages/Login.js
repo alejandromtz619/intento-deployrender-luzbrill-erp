@@ -9,7 +9,7 @@ import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 const Login = () => {
-  const { login } = useApp();
+  const { login, empresa } = useApp();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
