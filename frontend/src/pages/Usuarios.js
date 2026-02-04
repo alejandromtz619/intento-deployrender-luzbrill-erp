@@ -299,7 +299,7 @@ const Usuarios = () => {
                   <TableCell>{usuario.telefono || '-'}</TableCell>
                   <TableCell>
                     <Select 
-                      value={usuario.roles?.[0]?.id?.toString() || ""} 
+                      value={usuario.rol_id?.toString() || ""} 
                       onValueChange={(v) => handleAsignarRol(usuario.id, parseInt(v))}
                     >
                       <SelectTrigger className="w-40">
