@@ -1422,7 +1422,8 @@ async def anular_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
                         producto_id=item.producto_id,
                         tipo=TipoMovimientoStock.ENTRADA,
                         cantidad=item.cantidad,
-                        motivo=f"Devolución por anulación de venta #{venta_id}"
+                        referencia_tipo="ANULACION_VENTA",
+                        referencia_id=venta_id
                     )
                     db.add(movimiento)
             
