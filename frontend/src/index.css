@@ -4,35 +4,35 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Ether Dark Theme - GitHub Dark inspired */
+/* Ether Dark Theme - Oxfin Style Pure Black */
 [data-theme="ether"] {
-  --background: 13 17 23;
-  --foreground: 201 209 217;
+  --background: 0 0% 7%;
+  --foreground: 210 20% 90%;
   
-  --card: 22 27 34;
-  --card-foreground: 201 209 217;
+  --card: 0 0% 10%;
+  --card-foreground: 210 20% 90%;
   
-  --popover: 22 27 34;
-  --popover-foreground: 201 209 217;
+  --popover: 0 0% 10%;
+  --popover-foreground: 210 20% 90%;
   
-  --primary: 0 0 0;
-  --primary-foreground: 255 255 255;
+  --primary: 220 90% 56%;
+  --primary-foreground: 0 0% 100%;
   
-  --secondary: 33 38 45;
-  --secondary-foreground: 201 209 217;
+  --secondary: 0 0% 14%;
+  --secondary-foreground: 210 20% 90%;
   
-  --muted: 33 38 45;
-  --muted-foreground: 139 148 158;
+  --muted: 0 0% 14%;
+  --muted-foreground: 215 16% 50%;
   
-  --accent: 48 54 61;
-  --accent-foreground: 201 209 217;
+  --accent: 0 0% 18%;
+  --accent-foreground: 210 20% 90%;
   
-  --destructive: 248 81 73;
-  --destructive-foreground: 255 255 255;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
   
-  --border: 48 54 61;
-  --input: 48 54 61;
-  --ring: 88 166 255;
+  --border: 0 0% 18%;
+  --input: 0 0% 18%;
+  --ring: 220 90% 56%;
   
   --radius: 0.5rem;
 }
