@@ -1576,8 +1576,10 @@ async def generar_boleta(venta_id: int, db: AsyncSession = Depends(get_db)):
         },
         'vendedor': f"{usuario.nombre} {usuario.apellido or ''}".strip(),
         'items': items,
-        'subtotal': float(venta.total + venta.descuento),
+        'subtotal_sin_descuento': float(venta.total + venta.descuento),
         'descuento': float(venta.descuento),
+        'descuento_porcentaje': float(cliente.descuento_porcentaje) if cliente.descuento_porcentaje else 0,
+        'subtotal': float(venta.total + venta.descuento),
         'iva': float(venta.iva),
         'total': float(venta.total),
         'total_letras': numero_a_letras(int(venta.total)) + ' Guaraníes'
@@ -1654,7 +1656,10 @@ async def generar_factura(venta_id: int, db: AsyncSession = Depends(get_db)):
         'items': items,
         'subtotal_exenta': 0,
         'subtotal_iva_5': 0,
-        'subtotal_iva_10': float(venta.total),
+        'subtotal_iva_10': float(venta.total + venta.descuento),
+        'descuento': float(venta.descuento),
+        'descuento_porcentaje': float(cliente.descuento_porcentaje) if cliente.descuento_porcentaje else 0,
+        'iva_10': round(iva_10, 0),
         'total': float(venta.total),
         'total_letras': numero_a_letras(int(venta.total)),
         'liquidacion_iva': {

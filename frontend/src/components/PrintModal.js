@@ -90,6 +90,16 @@ const BoletaPrint = React.forwardRef(({ data }, ref) => {
       
       <div style={{ borderTop: '1px dashed black', paddingTop: '5px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+          <span>Subtotal:</span>
+          <span>{data.subtotal_sin_descuento?.toLocaleString('es-PY')}</span>
+        </div>
+        {data.descuento > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px', color: '#059669' }}>
+            <span>Descuento ({data.descuento_porcentaje}%):</span>
+            <span>-{data.descuento?.toLocaleString('es-PY')}</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
           <span>En Letras:</span>
           <span style={{ fontSize: '10px', textTransform: 'lowercase' }}>{data.total_letras}</span>
         </div>
@@ -202,6 +212,12 @@ const FacturaPrint = React.forwardRef(({ data }, ref) => {
                 <td style={{ paddingRight: '20px' }}>Subtotal IVA 10%:</td>
                 <td style={{ textAlign: 'right' }}>{data.subtotal_iva_10?.toLocaleString('es-PY')}</td>
               </tr>
+              {data.descuento > 0 && (
+                <tr style={{ color: '#059669' }}>
+                  <td style={{ paddingRight: '20px' }}>Descuento ({data.descuento_porcentaje}%):</td>
+                  <td style={{ textAlign: 'right' }}>-{data.descuento?.toLocaleString('es-PY')}</td>
+                </tr>
+              )}
               <tr>
                 <td style={{ paddingRight: '20px' }}>IVA 10%:</td>
                 <td style={{ textAlign: 'right' }}>{data.iva_10?.toLocaleString('es-PY')}</td>
