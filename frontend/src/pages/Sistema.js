@@ -162,7 +162,12 @@ const Sistema = () => {
                   key={color.id}
                   onClick={() => {
                     setPrimaryColor(color.id);
-                    if (color.dark) setTheme('dark');
+                    if (color.dark) {
+                      setTheme('dark');
+                      document.documentElement.setAttribute('data-theme', 'ether');
+                    } else {
+                      document.documentElement.removeAttribute('data-theme');
+                    }
                   }}
                   className={cn(
                     "w-full aspect-square rounded-lg transition-all relative",

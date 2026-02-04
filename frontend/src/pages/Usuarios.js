@@ -298,9 +298,12 @@ const Usuarios = () => {
                   <TableCell className="text-sm">{usuario.email}</TableCell>
                   <TableCell>{usuario.telefono || '-'}</TableCell>
                   <TableCell>
-                    <Select onValueChange={(v) => handleAsignarRol(usuario.id, parseInt(v))}>
-                      <SelectTrigger className="w-32">
-                        <SelectValue placeholder="Asignar" />
+                    <Select 
+                      value={usuario.roles?.[0]?.id?.toString() || ""} 
+                      onValueChange={(v) => handleAsignarRol(usuario.id, parseInt(v))}
+                    >
+                      <SelectTrigger className="w-40">
+                        <SelectValue placeholder="Sin asignar" />
                       </SelectTrigger>
                       <SelectContent>
                         {roles.map(r => (
