@@ -17,7 +17,7 @@ const Home = () => {
       title: 'Dashboard',
       description: 'Estadísticas, gráficos y alertas del sistema',
       color: 'from-blue-500 to-blue-600',
-      permission: null // Todos pueden ver
+      permission: 'dashboard.ver'
     },
     {
       id: 'ventas',

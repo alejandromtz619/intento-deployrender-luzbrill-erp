@@ -47,8 +47,8 @@ const Login = () => {
           <div className="mx-auto w-16 h-16 rounded-xl bg-primary flex items-center justify-center mb-4">
             <span className="text-2xl font-bold text-white font-['Manrope']">LB</span>
           </div>
-          <CardTitle className="text-2xl font-bold">Luz Brill ERP</CardTitle>
-          <CardDescription>Ingrese sus credenciales para continuar</CardDescription>
+          <CardTitle className="text-2xl font-bold text-gray-900">Luz Brill ERP</CardTitle>
+          <CardDescription className="text-gray-600">Ingrese sus credenciales para continuar</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

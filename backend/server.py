@@ -2621,8 +2621,11 @@ async def reporte_ventas(
     db: AsyncSession = Depends(get_db)
 ):
     """Genera reporte PDF de ventas por rango de fechas con filtros"""
-    fecha_ini = datetime.fromisoformat(fecha_desde)
-    fecha_fin = datetime.fromisoformat(fecha_hasta) + timedelta(days=1)
+    try:
+        fecha_ini = datetime.fromisoformat(fecha_desde)
+        fecha_fin = datetime.fromisoformat(fecha_hasta) + timedelta(days=1)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD")
     
     query = (
         select(Venta, Cliente)
@@ -2636,17 +2639,33 @@ async def reporte_ventas(
     
     # Apply estado filter (default: CONFIRMADA)
     if estado:
-        query = query.where(Venta.estado == EstadoVenta[estado])
+        try:
+            query = query.where(Venta.estado == EstadoVenta[estado])
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Estado '{estado}' no válido")
     else:
         query = query.where(Venta.estado == EstadoVenta.CONFIRMADA)
     
-    # Apply tipo_pago filter
+    # Apply tipo_pago filter - support CONTADO (all non-credit) and CREDITO
     if tipo_pago:
-        query = query.where(Venta.tipo_pago == TipoPago[tipo_pago])
+        if tipo_pago == 'CONTADO':
+            # CONTADO = all payment types except CREDITO
+            query = query.where(Venta.tipo_pago.in_([TipoPago.EFECTIVO, TipoPago.TARJETA, TipoPago.TRANSFERENCIA, TipoPago.CHEQUE]))
+        elif tipo_pago == 'CREDITO':
+            query = query.where(Venta.tipo_pago == TipoPago.CREDITO)
+        else:
+            # Support specific payment types if provided
+            try:
+                query = query.where(Venta.tipo_pago == TipoPago[tipo_pago])
+            except KeyError:
+                raise HTTPException(status_code=400, detail=f"Tipo de pago '{tipo_pago}' no válido")
     
     query = query.order_by(Venta.creado_en)
     result = await db.execute(query)
     ventas = result.all()
+    
+    if not ventas:
+        raise HTTPException(status_code=404, detail="No se encontraron ventas para los filtros seleccionados")
     
     columnas = ['ID', 'Fecha', 'Cliente', 'Tipo Pago', 'Total']
     datos = []
@@ -2667,7 +2686,12 @@ async def reporte_ventas(
     # Build subtitle with filters
     subtitle = f"Período: {fecha_desde} al {fecha_hasta}"
     if tipo_pago:
-        subtitle += f" | Pago: {tipo_pago}"
+        if tipo_pago == 'CONTADO':
+            subtitle += " | Tipo: CONTADO"
+        elif tipo_pago == 'CREDITO':
+            subtitle += " | Tipo: CRÉDITO"
+        else:
+            subtitle += f" | Pago: {tipo_pago}"
     if estado:
         subtitle += f" | Estado: {estado}"
     subtitle += f" | Total ventas: {len(datos)}"
@@ -2695,46 +2719,57 @@ async def reporte_stock(
     db: AsyncSession = Depends(get_db)
 ):
     """Genera reporte PDF de stock actual con filtros"""
-    result = await db.execute(
-        select(Producto, func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0).label('stock_total'))
-        .outerjoin(StockActual, Producto.id == StockActual.producto_id)
-        .where(Producto.empresa_id == empresa_id, Producto.activo == True)
-        .group_by(Producto.id)
-        .order_by(Producto.nombre)
-    )
-    productos = result.all()
-    
-    columnas = ['Código', 'Producto', 'Stock', 'Precio']
-    datos = []
-    
-    for producto, stock in productos:
-        # Check if stock is low (less than 10 units)
-        es_alerta = stock < 10
+    try:
+        result = await db.execute(
+            select(Producto, func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0).label('stock_total'))
+            .outerjoin(StockActual, Producto.id == StockActual.producto_id)
+            .where(Producto.empresa_id == empresa_id, Producto.activo == True)
+            .group_by(Producto.id)
+            .order_by(Producto.nombre)
+        )
+        productos = result.all()
         
-        # Filter by solo_alertas if specified
-        if solo_alertas == 'true' and not es_alerta:
-            continue
+        if not productos:
+            raise HTTPException(status_code=404, detail="No se encontraron productos activos en el inventario")
         
-        estado = "⚠️" if es_alerta else ""
-        datos.append([
-            producto.codigo_barra or '-',
-            f"{producto.nombre[:30]}{estado}",
-            str(int(stock)),
-            f"{float(producto.precio_venta):,.0f}"
-        ])
-    
-    # Build subtitle
-    subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
-    if solo_alertas == 'true':
-        subtitle += " | Solo stock bajo"
-    subtitle += f" | Total productos: {len(datos)}"
-    
-    pdf_bytes = crear_pdf_reporte(
-        "Reporte de Stock Actual",
-        subtitle,
-        columnas,
-        datos
-    )
+        columnas = ['Código', 'Producto', 'Stock', 'Precio']
+        datos = []
+        
+        for producto, stock in productos:
+            # Check if stock is low (less than 10 units)
+            es_alerta = stock < 10
+            
+            # Filter by solo_alertas if specified
+            if solo_alertas == 'true' and not es_alerta:
+                continue
+            
+            estado = "⚠️" if es_alerta else ""
+            datos.append([
+                producto.codigo_barra or '-',
+                f"{producto.nombre[:30]}{estado}",
+                str(int(stock)),
+                f"{float(producto.precio_venta):,.0f}"
+            ])
+        
+        if not datos:
+            raise HTTPException(status_code=404, detail="No se encontraron productos con stock bajo")
+        
+        # Build subtitle
+        subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
+        if solo_alertas == 'true':
+            subtitle += " | Solo stock bajo"
+        subtitle += f" | Total productos: {len(datos)}"
+        
+        pdf_bytes = crear_pdf_reporte(
+            "Reporte de Stock Actual",
+            subtitle,
+            columnas,
+            datos
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar reporte de stock: {str(e)}")
     
     return Response(
         content=pdf_bytes,
@@ -2751,65 +2786,81 @@ async def reporte_deudas_proveedores(
     db: AsyncSession = Depends(get_db)
 ):
     """Genera reporte PDF de deudas a proveedores con filtros"""
-    query = (
-        select(DeudaProveedor, Proveedor)
-        .join(Proveedor, DeudaProveedor.proveedor_id == Proveedor.id)
-        .where(Proveedor.empresa_id == empresa_id)
-    )
-    
-    # Filter by estado (default: PENDIENTE)
-    if estado:
-        if estado == 'PENDIENTE':
+    try:
+        query = (
+            select(DeudaProveedor, Proveedor)
+            .join(Proveedor, DeudaProveedor.proveedor_id == Proveedor.id)
+            .where(Proveedor.empresa_id == empresa_id)
+        )
+        
+        # Filter by estado (default: PENDIENTE)
+        if estado:
+            if estado == 'PENDIENTE':
+                query = query.where(DeudaProveedor.pagado == False)
+            elif estado == 'PAGADO':
+                query = query.where(DeudaProveedor.pagado == True)
+            else:
+                raise HTTPException(status_code=400, detail=f"Estado '{estado}' no válido. Use PENDIENTE o PAGADO")
+        else:
             query = query.where(DeudaProveedor.pagado == False)
-        elif estado == 'PAGADO':
-            query = query.where(DeudaProveedor.pagado == True)
-    else:
-        query = query.where(DeudaProveedor.pagado == False)
-    
-    # Filter by fecha_emision range
-    if fecha_desde:
-        fecha_ini = datetime.fromisoformat(fecha_desde)
-        query = query.where(DeudaProveedor.fecha_emision >= fecha_ini.date())
-    if fecha_hasta:
-        fecha_fin = datetime.fromisoformat(fecha_hasta)
-        query = query.where(DeudaProveedor.fecha_emision <= fecha_fin.date())
-    
-    query = query.order_by(DeudaProveedor.fecha_limite)
-    result = await db.execute(query)
-    deudas = result.all()
-    
-    columnas = ['Proveedor', 'Descripción', 'Monto', 'Emisión', 'Vencimiento']
-    datos = []
-    total_deuda = Decimal('0')
-    
-    for deuda, proveedor in deudas:
-        total_deuda += deuda.monto
-        vencido = "⚠️" if deuda.fecha_limite and deuda.fecha_limite < date.today() else ""
-        datos.append([
-            proveedor.nombre[:25],
-            (deuda.descripcion or '-')[:30],
-            f"{float(deuda.monto):,.0f}",
-            deuda.fecha_emision.strftime('%d/%m/%Y') if deuda.fecha_emision else '-',
-            f"{deuda.fecha_limite.strftime('%d/%m/%Y') if deuda.fecha_limite else '-'}{vencido}"
-        ])
-    
-    totales = ['', '', f"{float(total_deuda):,.0f}", '', '']
-    
-    # Build subtitle
-    subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
-    if fecha_desde and fecha_hasta:
-        subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
-    if estado:
-        subtitle += f" | Estado: {estado}"
-    subtitle += f" | Total deudas: {len(datos)}"
-    
-    pdf_bytes = crear_pdf_reporte(
-        "Reporte de Deudas a Proveedores",
-        subtitle,
-        columnas,
-        datos,
-        totales
-    )
+        
+        # Filter by fecha_emision range
+        if fecha_desde:
+            try:
+                fecha_ini = datetime.fromisoformat(fecha_desde)
+                query = query.where(DeudaProveedor.fecha_emision >= fecha_ini.date())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_desde inválido. Use YYYY-MM-DD")
+        if fecha_hasta:
+            try:
+                fecha_fin = datetime.fromisoformat(fecha_hasta)
+                query = query.where(DeudaProveedor.fecha_emision <= fecha_fin.date())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido. Use YYYY-MM-DD")
+        
+        query = query.order_by(DeudaProveedor.fecha_limite)
+        result = await db.execute(query)
+        deudas = result.all()
+        
+        if not deudas:
+            raise HTTPException(status_code=404, detail="No se encontraron deudas a proveedores con los filtros seleccionados")
+        
+        columnas = ['Proveedor', 'Descripción', 'Monto', 'Emisión', 'Vencimiento']
+        datos = []
+        total_deuda = Decimal('0')
+        
+        for deuda, proveedor in deudas:
+            total_deuda += deuda.monto
+            vencido = "⚠️" if deuda.fecha_limite and deuda.fecha_limite < date.today() else ""
+            datos.append([
+                proveedor.nombre[:25],
+                (deuda.descripcion or '-')[:30],
+                f"{float(deuda.monto):,.0f}",
+                deuda.fecha_emision.strftime('%d/%m/%Y') if deuda.fecha_emision else '-',
+                f"{deuda.fecha_limite.strftime('%d/%m/%Y') if deuda.fecha_limite else '-'}{vencido}"
+            ])
+        
+        totales = ['', '', f"{float(total_deuda):,.0f}", '', '']
+        
+        # Build subtitle
+        subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
+        if fecha_desde and fecha_hasta:
+            subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
+        if estado:
+            subtitle += f" | Estado: {estado}"
+        subtitle += f" | Total deudas: {len(datos)}"
+        
+        pdf_bytes = crear_pdf_reporte(
+            "Reporte de Deudas a Proveedores",
+            subtitle,
+            columnas,
+            datos,
+            totales
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar reporte de deudas: {str(e)}")
     
     return Response(
         content=pdf_bytes,
@@ -2826,64 +2877,80 @@ async def reporte_creditos_clientes(
     db: AsyncSession = Depends(get_db)
 ):
     """Genera reporte PDF de créditos de clientes con filtros"""
-    query = (
-        select(CreditoCliente, Cliente)
-        .join(Cliente, CreditoCliente.cliente_id == Cliente.id)
-        .where(Cliente.empresa_id == empresa_id)
-    )
-    
-    # Filter by estado (default: PENDIENTE)
-    if estado:
-        if estado == 'PENDIENTE':
+    try:
+        query = (
+            select(CreditoCliente, Cliente)
+            .join(Cliente, CreditoCliente.cliente_id == Cliente.id)
+            .where(Cliente.empresa_id == empresa_id)
+        )
+        
+        # Filter by estado (default: PENDIENTE)
+        if estado:
+            if estado == 'PENDIENTE':
+                query = query.where(CreditoCliente.pagado == False)
+            elif estado == 'PAGADO':
+                query = query.where(CreditoCliente.pagado == True)
+            else:
+                raise HTTPException(status_code=400, detail=f"Estado '{estado}' no válido. Use PENDIENTE o PAGADO")
+        else:
             query = query.where(CreditoCliente.pagado == False)
-        elif estado == 'PAGADO':
-            query = query.where(CreditoCliente.pagado == True)
-    else:
-        query = query.where(CreditoCliente.pagado == False)
-    
-    # Filter by fecha_venta range
-    if fecha_desde:
-        fecha_ini = datetime.fromisoformat(fecha_desde)
-        query = query.where(CreditoCliente.fecha_venta >= fecha_ini.date())
-    if fecha_hasta:
-        fecha_fin = datetime.fromisoformat(fecha_hasta)
-        query = query.where(CreditoCliente.fecha_venta <= fecha_fin.date())
-    
-    query = query.order_by(CreditoCliente.fecha_venta)
-    result = await db.execute(query)
-    creditos = result.all()
-    
-    columnas = ['Cliente', 'Venta #', 'Original', 'Pendiente', 'Fecha']
-    datos = []
-    total_pendiente = Decimal('0')
-    
-    for credito, cliente in creditos:
-        total_pendiente += credito.monto_pendiente
-        datos.append([
-            f"{cliente.nombre} {cliente.apellido or ''}".strip()[:25],
-            str(credito.venta_id or '-'),
-            f"{float(credito.monto_original):,.0f}",
-            f"{float(credito.monto_pendiente):,.0f}",
-            credito.fecha_venta.strftime('%d/%m/%Y') if credito.fecha_venta else '-'
-        ])
-    
-    totales = ['', '', 'TOTAL:', f"{float(total_pendiente):,.0f}", '']
-    
-    # Build subtitle
-    subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
-    if fecha_desde and fecha_hasta:
-        subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
-    if estado:
-        subtitle += f" | Estado: {estado}"
-    subtitle += f" | Total créditos: {len(datos)}"
-    
-    pdf_bytes = crear_pdf_reporte(
-        "Reporte de Créditos de Clientes",
-        subtitle,
-        columnas,
-        datos,
-        totales
-    )
+        
+        # Filter by fecha_venta range
+        if fecha_desde:
+            try:
+                fecha_ini = datetime.fromisoformat(fecha_desde)
+                query = query.where(CreditoCliente.fecha_venta >= fecha_ini.date())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_desde inválido. Use YYYY-MM-DD")
+        if fecha_hasta:
+            try:
+                fecha_fin = datetime.fromisoformat(fecha_hasta)
+                query = query.where(CreditoCliente.fecha_venta <= fecha_fin.date())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido. Use YYYY-MM-DD")
+        
+        query = query.order_by(CreditoCliente.fecha_venta)
+        result = await db.execute(query)
+        creditos = result.all()
+        
+        if not creditos:
+            raise HTTPException(status_code=404, detail="No se encontraron créditos de clientes con los filtros seleccionados")
+        
+        columnas = ['Cliente', 'Venta #', 'Original', 'Pendiente', 'Fecha']
+        datos = []
+        total_pendiente = Decimal('0')
+        
+        for credito, cliente in creditos:
+            total_pendiente += credito.monto_pendiente
+            datos.append([
+                f"{cliente.nombre} {cliente.apellido or ''}".strip()[:25],
+                str(credito.venta_id or '-'),
+                f"{float(credito.monto_original):,.0f}",
+                f"{float(credito.monto_pendiente):,.0f}",
+                credito.fecha_venta.strftime('%d/%m/%Y') if credito.fecha_venta else '-'
+            ])
+        
+        totales = ['', '', 'TOTAL:', f"{float(total_pendiente):,.0f}", '']
+        
+        # Build subtitle
+        subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
+        if fecha_desde and fecha_hasta:
+            subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
+        if estado:
+            subtitle += f" | Estado: {estado}"
+        subtitle += f" | Total créditos: {len(datos)}"
+        
+        pdf_bytes = crear_pdf_reporte(
+            "Reporte de Créditos de Clientes",
+            subtitle,
+            columnas,
+            datos,
+            totales
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al generar reporte de créditos: {str(e)}")
     
     return Response(
         content=pdf_bytes,
@@ -3076,6 +3143,8 @@ async def seed_data(db: AsyncSession = Depends(get_db)):
     
     # Create comprehensive permissions
     permisos_data = [
+        # Dashboard
+        ("dashboard.ver", "Ver dashboard"),
         # Ventas
         ("ventas.crear", "Crear ventas"),
         ("ventas.ver", "Ver ventas"),
@@ -3162,6 +3231,7 @@ async def seed_data(db: AsyncSession = Depends(get_db)):
     gerente_rol_result = await db.execute(select(Rol).where(Rol.nombre == "GERENTE", Rol.empresa_id == empresa.id))
     gerente_rol = gerente_rol_result.scalar_one_or_none()
     gerente_permisos = [
+        "dashboard.ver",
         "ventas.crear", "ventas.ver", "ventas.anular", "ventas.modificar_precio", "ventas.aplicar_descuento",
         "ventas.imprimir_boleta", "ventas.imprimir_factura", "ventas.ver_historial",
         "productos.ver", "productos.crear", "productos.editar", "productos.modificar_precio",
@@ -3184,6 +3254,7 @@ async def seed_data(db: AsyncSession = Depends(get_db)):
     vendedor_rol_result = await db.execute(select(Rol).where(Rol.nombre == "VENDEDOR", Rol.empresa_id == empresa.id))
     vendedor_rol = vendedor_rol_result.scalar_one_or_none()
     vendedor_permisos = [
+        "dashboard.ver",
         "ventas.crear", "ventas.ver", "ventas.imprimir_boleta", "ventas.imprimir_factura", "ventas.ver_historial",
         "productos.ver", "stock.ver",
         "clientes.ver", "clientes.crear",

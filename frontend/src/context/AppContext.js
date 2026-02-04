@@ -12,7 +12,7 @@ export const useApp = () => {
 
 // Map de permisos requeridos por ruta
 const ROUTE_PERMISSIONS = {
-  '/dashboard': null, // todos pueden ver
+  '/dashboard': 'dashboard.ver',
   '/ventas': 'ventas.crear',
   '/delivery': 'delivery.ver',
   '/laboratorio': 'laboratorio.ver',
@@ -152,14 +152,48 @@ export const AppProvider = ({ children }) => {
       ...options
     };
     
-    const res = await fetch(`${API_URL}${endpoint}`, config);
-    
-    if (!res.ok) {
-      const error = await res.json().catch(() => ({ detail: 'Error de servidor' }));
-      throw new Error(error.detail || 'Error en la solicitud');
+    try {
+      const res = await fetch(`${API_URL}${endpoint}`, config);
+      
+      if (!res.ok) {
+        // Try to extract detailed error message
+        let errorMessage = 'Error en la solicitud';
+        try {
+          const error = await res.json();
+          errorMessage = error.detail || error.message || errorMessage;
+        } catch (e) {
+          // If response is not JSON, use status-based messages
+          if (res.status === 400) {
+            errorMessage = 'Datos inv\u00e1lidos en la solicitud';
+          } else if (res.status === 401) {
+            errorMessage = 'Sesi\u00f3n expirada. Por favor inicie sesi\u00f3n nuevamente';
+            logout();
+          } else if (res.status === 403) {
+            errorMessage = 'No tiene permisos para realizar esta acci\u00f3n';
+          } else if (res.status === 404) {
+            errorMessage = 'Recurso no encontrado';
+          } else if (res.status === 409) {
+            errorMessage = 'Conflicto: el recurso ya existe o tiene dependencias';
+          } else if (res.status === 422) {
+            errorMessage = 'Error de validaci\u00f3n de datos';
+          } else if (res.status >= 500) {
+            errorMessage = 'Error del servidor. Contacte al administrador.';
+          } else {
+            errorMessage = `Error ${res.status}: ${res.statusText}`;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+      
+      return await res.json();
+    } catch (error) {
+      // Network errors or fetch failures
+      if (error.name === 'TypeError' || error.message.includes('Failed to fetch')) {
+        throw new Error('Error de conexi\u00f3n. Verifique su internet e int\u00e9ntelo nuevamente.');
+      }
+      // Re-throw our custom errors
+      throw error;
     }
-    
-    return res.json();
   };
 
   // Check if user has a specific permission

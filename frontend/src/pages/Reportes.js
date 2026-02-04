@@ -47,7 +47,10 @@ const Reportes = () => {
   const [creditosEstado, setCreditosEstado] = useState('PENDIENTE');
 
   const downloadReport = async (tipo, params = {}) => {
-    if (!empresa?.id) return;
+    if (!empresa?.id) {
+      toast.error('No se ha seleccionado una empresa');
+      return;
+    }
     
     setLoading({ ...loading, [tipo]: true });
     
@@ -64,10 +67,33 @@ const Reportes = () => {
       });
       
       if (!response.ok) {
-        throw new Error('Error al generar reporte');
+        // Try to get error message from response
+        let errorMessage = 'Error al generar reporte';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || errorData.message || errorMessage;
+        } catch (e) {
+          // If response is not JSON, use status text
+          if (response.status === 404) {
+            errorMessage = 'No se encontraron datos para este reporte';
+          } else if (response.status === 403) {
+            errorMessage = 'No tiene permisos para generar este reporte';
+          } else if (response.status === 500) {
+            errorMessage = 'Error en el servidor al generar el reporte. Contacte al administrador.';
+          } else {
+            errorMessage = `Error ${response.status}: ${response.statusText}`;
+          }
+        }
+        throw new Error(errorMessage);
       }
       
       const blob = await response.blob();
+      
+      // Verify we got a PDF
+      if (!blob.type.includes('pdf')) {
+        throw new Error('El servidor no devolvió un archivo PDF válido');
+      }
+      
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
@@ -86,9 +112,10 @@ const Reportes = () => {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
       
-      toast.success('Reporte descargado');
+      toast.success('Reporte descargado exitosamente');
     } catch (e) {
-      toast.error(e.message || 'Error al descargar reporte');
+      console.error('Error downloading report:', e);
+      toast.error(e.message || 'Error al descargar reporte. Verifique su conexión e inténtelo nuevamente.');
     } finally {
       setLoading({ ...loading, [tipo]: false });
     }
@@ -112,15 +139,12 @@ const Reportes = () => {
         },
         {
           type: 'select',
-          label: 'Tipo de Pago',
+          label: 'Tipo de Venta',
           state: ventasTipoPago,
           setter: setVentasTipoPago,
           options: [
-            { value: 'TODOS', label: 'Todos los pagos' },
-            { value: 'EFECTIVO', label: 'Efectivo' },
-            { value: 'TARJETA', label: 'Tarjeta' },
-            { value: 'TRANSFERENCIA', label: 'Transferencia' },
-            { value: 'CHEQUE', label: 'Cheque' },
+            { value: 'TODOS', label: 'Todas las ventas' },
+            { value: 'CONTADO', label: 'Contado (Efectivo/Tarjeta/Transferencia/Cheque)' },
             { value: 'CREDITO', label: 'Crédito' }
           ]
         },
