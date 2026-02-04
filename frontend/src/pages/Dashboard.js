@@ -77,20 +77,17 @@ const Dashboard = () => {
 
   // Generate chart data based on selected period
   const getChartData = () => {
-    if (ventasPeriodo === 'dia') {
-      // 24h chart data
-      return Array.from({ length: 24 }, (_, i) => {
-        const hourData = stats?.ventas_por_hora?.find(v => v.hora === i);
-        return {
-          label: `${i}:00`,
-          cantidad: hourData?.cantidad || 0,
-          monto: hourData?.monto || 0,
-          unidades: hourData?.unidades || 0
-        };
-      });
+    // SIEMPRE usar ventasData del backend (ya incluye filtros de tipo_pago)
+    if (ventasPeriodo === 'dia' && ventasData.length === 0) {
+      // Fallback: rellenar 24 horas vacías
+      return Array.from({ length: 24 }, (_, i) => ({
+        label: `${i}:00`,
+        cantidad: 0,
+        monto: 0,
+        unidades: 0
+      }));
     }
     
-    // Para otros períodos, usar ventasData del backend
     return ventasData.map(item => ({
       label: item.label || item.fecha || item.periodo,
       cantidad: item.cantidad || 0,
