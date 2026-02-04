@@ -1371,102 +1371,111 @@ async def obtener_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
 
 @api_router.post("/ventas/{venta_id}/anular", response_model=VentaResponse)
 async def anular_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Venta).where(Venta.id == venta_id))
-    venta = result.scalar_one_or_none()
-    if not venta:
-        raise HTTPException(status_code=404, detail="Venta no encontrada")
-    
-    if venta.estado == EstadoVenta.ANULADA:
-        raise HTTPException(status_code=400, detail="La venta ya está anulada")
-    
-    # 1. Devolver stock de productos
-    items_result = await db.execute(
-        select(VentaItem).where(VentaItem.venta_id == venta_id)
-    )
-    items = items_result.scalars().all()
-    
-    for item in items:
-        if item.producto_id:
-            # Crear movimiento de entrada (devolución)
-            # Buscar el almacen principal (primer almacen de la empresa)
-            almacen_result = await db.execute(
-                select(Almacen).where(Almacen.empresa_id == venta.empresa_id).limit(1)
-            )
-            almacen = almacen_result.scalar_one_or_none()
-            
-            if almacen:
-                # Actualizar stock
-                stock_result = await db.execute(
-                    select(StockActual).where(
-                        StockActual.producto_id == item.producto_id,
-                        StockActual.almacen_id == almacen.id
-                    )
-                )
-                stock = stock_result.scalar_one_or_none()
-                
-                if stock:
-                    stock.cantidad += item.cantidad
-                else:
-                    # Crear stock si no existe
-                    stock = StockActual(
-                        producto_id=item.producto_id,
-                        almacen_id=almacen.id,
-                        cantidad=item.cantidad
-                    )
-                    db.add(stock)
-                
-                # Registrar movimiento
-                movimiento = MovimientoStock(
-                    almacen_id=almacen.id,
-                    producto_id=item.producto_id,
-                    tipo=TipoMovimientoStock.ENTRADA,
-                    cantidad=item.cantidad,
-                    motivo=f"Devolución por anulación de venta #{venta_id}"
-                )
-                db.add(movimiento)
+    try:
+        result = await db.execute(select(Venta).where(Venta.id == venta_id))
+        venta = result.scalar_one_or_none()
+        if not venta:
+            raise HTTPException(status_code=404, detail="Venta no encontrada")
         
-        elif item.materia_laboratorio_id:
-            # Devolver materia de laboratorio a estado DISPONIBLE
-            materia_result = await db.execute(
-                select(MateriaLaboratorio).where(MateriaLaboratorio.id == item.materia_laboratorio_id)
-            )
-            materia = materia_result.scalar_one_or_none()
-            if materia:
-                materia.estado = EstadoMateria.DISPONIBLE
-    
-    # 2. Devolver crédito si fue venta a crédito
-    if venta.tipo_pago == TipoPago.CREDITO:
-        credito_result = await db.execute(
-            select(CreditoCliente).where(CreditoCliente.venta_id == venta_id)
+        if venta.estado == EstadoVenta.ANULADA:
+            raise HTTPException(status_code=400, detail="La venta ya está anulada")
+        
+        # 1. Devolver stock de productos
+        items_result = await db.execute(
+            select(VentaItem).where(VentaItem.venta_id == venta_id)
         )
-        credito = credito_result.scalar_one_or_none()
-        if credito:
-            # Eliminar el crédito (o marcarlo como anulado si tiene pagos)
-            pagos_result = await db.execute(
-                select(PagoCredito).where(PagoCredito.credito_id == credito.id)
-            )
-            pagos = pagos_result.scalars().all()
+        items = items_result.scalars().all()
+        
+        for item in items:
+            if item.producto_id:
+                # Crear movimiento de entrada (devolución)
+                # Buscar el almacen principal (primer almacen de la empresa)
+                almacen_result = await db.execute(
+                    select(Almacen).where(Almacen.empresa_id == venta.empresa_id).limit(1)
+                )
+                almacen = almacen_result.scalar_one_or_none()
+                
+                if almacen:
+                    # Actualizar stock
+                    stock_result = await db.execute(
+                        select(StockActual).where(
+                            StockActual.producto_id == item.producto_id,
+                            StockActual.almacen_id == almacen.id
+                        )
+                    )
+                    stock = stock_result.scalar_one_or_none()
+                    
+                    if stock:
+                        stock.cantidad += item.cantidad
+                    else:
+                        # Crear stock si no existe
+                        stock = StockActual(
+                            producto_id=item.producto_id,
+                            almacen_id=almacen.id,
+                            cantidad=item.cantidad
+                        )
+                        db.add(stock)
+                    
+                    # Registrar movimiento
+                    movimiento = MovimientoStock(
+                        almacen_id=almacen.id,
+                        producto_id=item.producto_id,
+                        tipo=TipoMovimientoStock.ENTRADA,
+                        cantidad=item.cantidad,
+                        motivo=f"Devolución por anulación de venta #{venta_id}"
+                    )
+                    db.add(movimiento)
             
-            if pagos:
-                # Si tiene pagos, marcar como anulado pero mantener el registro
-                credito.monto_pendiente = 0
-                credito.descripcion += " (ANULADO)"
-            else:
-                # Si no tiene pagos, eliminar el crédito
-                await db.delete(credito)
-    
-    # 3. Marcar venta como anulada
-    venta.estado = EstadoVenta.ANULADA
-    
-    # 4. Si tiene entrega asociada, siempre eliminarla (al anular venta)
-    entrega_result = await db.execute(select(Entrega).where(Entrega.venta_id == venta_id))
-    entrega = entrega_result.scalar_one_or_none()
-    if entrega:
-        await db.delete(entrega)
-    
-    await db.commit()
-    await db.refresh(venta)
-    return venta
+            elif item.materia_laboratorio_id:
+                # Devolver materia de laboratorio a estado DISPONIBLE
+                materia_result = await db.execute(
+                    select(MateriaLaboratorio).where(MateriaLaboratorio.id == item.materia_laboratorio_id)
+                )
+                materia = materia_result.scalar_one_or_none()
+                if materia:
+                    materia.estado = EstadoMateria.DISPONIBLE
+        
+        # 2. Devolver crédito si fue venta a crédito
+        if venta.tipo_pago == TipoPago.CREDITO:
+            credito_result = await db.execute(
+                select(CreditoCliente).where(CreditoCliente.venta_id == venta_id)
+            )
+            credito = credito_result.scalar_one_or_none()
+            if credito:
+                # Eliminar el crédito (o marcarlo como anulado si tiene pagos)
+                pagos_result = await db.execute(
+                    select(PagoCredito).where(PagoCredito.credito_id == credito.id)
+                )
+                pagos = pagos_result.scalars().all()
+                
+                if pagos:
+                    # Si tiene pagos, marcar como anulado pero mantener el registro
+                    credito.monto_pendiente = 0
+                    credito.descripcion += " (ANULADO)"
+                else:
+                    # Si no tiene pagos, eliminar el crédito
+                    await db.delete(credito)
+        
+        # 3. Marcar venta como anulada
+        venta.estado = EstadoVenta.ANULADA
+        
+        # 4. Si tiene entrega asociada, siempre eliminarla (al anular venta)
+        entrega_result = await db.execute(select(Entrega).where(Entrega.venta_id == venta_id))
+        entrega = entrega_result.scalar_one_or_none()
+        if entrega:
+            await db.delete(entrega)
+        
+        await db.commit()
+        await db.refresh(venta)
+        return venta
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        import traceback
+        error_detail = f"Error anulando venta: {str(e)}\n{traceback.format_exc()}"
+        print(error_detail)  # Esto aparecerá en los logs
+        raise HTTPException(status_code=500, detail=error_detail)
 
 # ==================== BOLETA Y FACTURA ====================
 @api_router.get("/ventas/{venta_id}/boleta")
