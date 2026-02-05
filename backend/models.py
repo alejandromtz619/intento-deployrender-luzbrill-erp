@@ -15,6 +15,7 @@ class RolSistema(str, enum.Enum):
 
 class EstadoVenta(str, enum.Enum):
     BORRADOR = "BORRADOR"
+    PENDIENTE = "PENDIENTE"
     CONFIRMADA = "CONFIRMADA"
     ANULADA = "ANULADA"
 

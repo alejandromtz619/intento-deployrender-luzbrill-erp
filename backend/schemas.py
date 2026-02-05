@@ -13,6 +13,7 @@ class RolSistema(str, Enum):
 
 class EstadoVenta(str, Enum):
     BORRADOR = "BORRADOR"
+    PENDIENTE = "PENDIENTE"
     CONFIRMADA = "CONFIRMADA"
     ANULADA = "ANULADA"
 
@@ -367,6 +368,13 @@ class VentaCreate(VentaBase):
     empresa_id: int
     usuario_id: int
     items: List[VentaItemCreate]
+
+class VentaUpdate(BaseModel):
+    cliente_id: Optional[int] = None
+    representante_cliente_id: Optional[int] = None
+    tipo_pago: Optional[TipoPago] = None
+    es_delivery: Optional[bool] = None
+    items: Optional[List[VentaItemCreate]] = None
 
 class VentaResponse(VentaBase):
     model_config = ConfigDict(from_attributes=True)

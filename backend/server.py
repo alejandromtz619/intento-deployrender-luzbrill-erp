@@ -49,7 +49,7 @@ from schemas import (
     MateriaLaboratorioCreate, MateriaLaboratorioResponse,
     AlmacenCreate, AlmacenResponse, StockActualCreate, StockActualResponse, StockConDetalles,
     MovimientoStockCreate, MovimientoStockResponse, TraspasoStockCreate,
-    VentaCreate, VentaResponse, VentaConDetalles, VentaItemResponse,
+    VentaCreate, VentaUpdate, VentaResponse, VentaConDetalles, VentaItemResponse,
     FuncionarioCreate, FuncionarioResponse,
     AdelantoSalarioCreate, AdelantoSalarioResponse,
     CicloSalarioCreate, CicloSalarioResponse,
@@ -1143,7 +1143,7 @@ async def configurar_alerta_stock(stock_id: int, alerta_minima: int, db: AsyncSe
 
 # ==================== VENTAS ====================
 @api_router.post("/ventas", response_model=VentaResponse)
-async def crear_venta(data: VentaCreate, db: AsyncSession = Depends(get_db)):
+async def crear_venta(data: VentaCreate, crear_pendiente: bool = False, db: AsyncSession = Depends(get_db)):
     # Get client
     cliente_result = await db.execute(select(Cliente).where(Cliente.id == data.cliente_id))
     cliente = cliente_result.scalar_one_or_none()
@@ -1158,15 +1158,18 @@ async def crear_venta(data: VentaCreate, db: AsyncSession = Depends(get_db)):
         if representante:
             cliente_privilegios = representante
     
-    # Validate cheque payment - usar privilegios del cliente efectivo
-    if data.tipo_pago == TipoPago.CHEQUE and not cliente_privilegios.acepta_cheque:
-        raise HTTPException(status_code=400, detail="Este cliente no tiene habilitado el pago con cheque")
+    # Si es venta pendiente, no validar stock ni crédito todavía
+    if not crear_pendiente:
+        # Validate cheque payment - usar privilegios del cliente efectivo
+        if data.tipo_pago == TipoPago.CHEQUE and not cliente_privilegios.acepta_cheque:
+            raise HTTPException(status_code=400, detail="Este cliente no tiene habilitado el pago con cheque")
     
     descuento_porcentaje = cliente_privilegios.descuento_porcentaje or Decimal('0')
     
     subtotal = Decimal('0')
     items_data = []
     
+    # Solo validar stock si no es venta pendiente
     for item in data.items:
         item_total = Decimal(str(item.cantidad)) * item.precio_unitario
         subtotal += item_total
@@ -1175,7 +1178,7 @@ async def crear_venta(data: VentaCreate, db: AsyncSession = Depends(get_db)):
             'total': item_total
         })
         
-        if item.producto_id:
+        if not crear_pendiente and item.producto_id:
             stock_result = await db.execute(
                 select(func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0))
                 .where(StockActual.producto_id == item.producto_id)
@@ -1194,8 +1197,8 @@ async def crear_venta(data: VentaCreate, db: AsyncSession = Depends(get_db)):
     iva = subtotal_con_descuento * Decimal('10') / Decimal('110')
     total = subtotal_con_descuento
     
-    # Validar crédito si es venta a crédito
-    if data.tipo_pago == TipoPago.CREDITO:
+    # Validar crédito si es venta a crédito y no es pendiente
+    if not crear_pendiente and data.tipo_pago == TipoPago.CREDITO:
         # Calcular crédito usado del cliente que tiene los privilegios
         creditos_result = await db.execute(
             select(func_sql.coalesce(func_sql.sum(CreditoCliente.monto_pendiente), 0))
@@ -1221,7 +1224,7 @@ async def crear_venta(data: VentaCreate, db: AsyncSession = Depends(get_db)):
         descuento=descuento,
         tipo_pago=data.tipo_pago,
         es_delivery=data.es_delivery,
-        estado=EstadoVenta.BORRADOR
+        estado=EstadoVenta.PENDIENTE if crear_pendiente else EstadoVenta.BORRADOR
     )
     db.add(venta)
     await db.flush()
@@ -1318,6 +1321,221 @@ async def confirmar_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
     await db.refresh(venta)
     return venta
 
+@api_router.put("/ventas/{venta_id}", response_model=VentaResponse)
+async def actualizar_venta_pendiente(venta_id: int, data: VentaUpdate, db: AsyncSession = Depends(get_db)):
+    """Permite editar una venta PENDIENTE: cambiar cliente, items, descuentos, tipo de pago"""
+    result = await db.execute(
+        select(Venta).options(selectinload(Venta.items)).where(Venta.id == venta_id)
+    )
+    venta = result.scalar_one_or_none()
+    if not venta:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+    
+    if venta.estado != EstadoVenta.PENDIENTE:
+        raise HTTPException(status_code=400, detail="Solo se pueden editar ventas PENDIENTES")
+    
+    # Update cliente if provided
+    if data.cliente_id is not None:
+        cliente_result = await db.execute(select(Cliente).where(Cliente.id == data.cliente_id))
+        cliente = cliente_result.scalar_one_or_none()
+        if not cliente:
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
+        venta.cliente_id = data.cliente_id
+    
+    # Update representante if provided
+    if data.representante_cliente_id is not None:
+        venta.representante_cliente_id = data.representante_cliente_id
+    
+    # Update tipo_pago if provided
+    if data.tipo_pago is not None:
+        venta.tipo_pago = data.tipo_pago
+    
+    # Update es_delivery if provided
+    if data.es_delivery is not None:
+        venta.es_delivery = data.es_delivery
+    
+    # Update items if provided
+    if data.items is not None:
+        # Delete existing items
+        for item in venta.items:
+            await db.delete(item)
+        await db.flush()
+        
+        # Get cliente para descuento
+        cliente_result = await db.execute(select(Cliente).where(Cliente.id == venta.cliente_id))
+        cliente = cliente_result.scalar_one_or_none()
+        
+        # Si hay representante, usar sus privilegios
+        cliente_privilegios = cliente
+        if venta.representante_cliente_id:
+            rep_result = await db.execute(select(Cliente).where(Cliente.id == venta.representante_cliente_id))
+            representante = rep_result.scalar_one_or_none()
+            if representante:
+                cliente_privilegios = representante
+        
+        descuento_porcentaje = cliente_privilegios.descuento_porcentaje or Decimal('0')
+        
+        # Recalculate totals with new items
+        subtotal = Decimal('0')
+        for item in data.items:
+            item_total = Decimal(str(item.cantidad)) * item.precio_unitario
+            subtotal += item_total
+            
+            venta_item = VentaItem(
+                venta_id=venta.id,
+                producto_id=item.producto_id,
+                materia_laboratorio_id=item.materia_laboratorio_id,
+                cantidad=item.cantidad,
+                precio_unitario=item.precio_unitario,
+                total=item_total,
+                observaciones=item.observaciones
+            )
+            db.add(venta_item)
+        
+        descuento = subtotal * descuento_porcentaje / Decimal('100')
+        subtotal_con_descuento = subtotal - descuento
+        iva = subtotal_con_descuento * Decimal('10') / Decimal('110')
+        
+        venta.descuento = descuento
+        venta.iva = iva
+        venta.total = subtotal_con_descuento
+    
+    await db.commit()
+    await db.refresh(venta)
+    return venta
+
+@api_router.post("/ventas/{venta_id}/confirmar-pendiente", response_model=VentaResponse)
+async def confirmar_venta_pendiente(venta_id: int, db: AsyncSession = Depends(get_db)):
+    """Confirma una venta PENDIENTE: valida stock, genera movimientos, crea crédito si aplica"""
+    result = await db.execute(
+        select(Venta).options(selectinload(Venta.items)).where(Venta.id == venta_id)
+    )
+    venta = result.scalar_one_or_none()
+    if not venta:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+    
+    if venta.estado != EstadoVenta.PENDIENTE:
+        raise HTTPException(status_code=400, detail="Solo se pueden confirmar ventas PENDIENTES")
+    
+    # Get cliente para validaciones
+    cliente_result = await db.execute(select(Cliente).where(Cliente.id == venta.cliente_id))
+    cliente = cliente_result.scalar_one_or_none()
+    
+    # Si hay representante, usar sus privilegios
+    cliente_privilegios = cliente
+    if venta.representante_cliente_id:
+        rep_result = await db.execute(select(Cliente).where(Cliente.id == venta.representante_cliente_id))
+        representante = rep_result.scalar_one_or_none()
+        if representante:
+            cliente_privilegios = representante
+    
+    # Validate cheque payment
+    if venta.tipo_pago == TipoPago.CHEQUE and not cliente_privilegios.acepta_cheque:
+        raise HTTPException(status_code=400, detail="Este cliente no tiene habilitado el pago con cheque")
+    
+    # Validate stock for each item
+    for item in venta.items:
+        if item.producto_id:
+            stock_result = await db.execute(
+                select(func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0))
+                .where(StockActual.producto_id == item.producto_id)
+            )
+            stock_total = stock_result.scalar() or 0
+            if stock_total < item.cantidad:
+                prod_result = await db.execute(select(Producto).where(Producto.id == item.producto_id))
+                prod = prod_result.scalar_one_or_none()
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Stock insuficiente para {prod.nombre if prod else 'producto'}. Disponible: {stock_total}"
+                )
+    
+    # Validate crédito if applicable
+    if venta.tipo_pago == TipoPago.CREDITO:
+        creditos_result = await db.execute(
+            select(func_sql.coalesce(func_sql.sum(CreditoCliente.monto_pendiente), 0))
+            .where(CreditoCliente.cliente_id == cliente_privilegios.id, CreditoCliente.pagado == False)
+        )
+        credito_usado = creditos_result.scalar() or Decimal('0')
+        limite = cliente_privilegios.limite_credito or Decimal('0')
+        
+        if limite > 0 and (credito_usado + venta.total) > limite:
+            disponible = max(Decimal('0'), limite - credito_usado)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Crédito insuficiente. Límite: {float(limite):,.0f}, Usado: {float(credito_usado):,.0f}, Disponible: {float(disponible):,.0f} Gs"
+            )
+    
+    # Process stock movements
+    for item in venta.items:
+        if item.producto_id:
+            stock_result = await db.execute(
+                select(StockActual)
+                .where(StockActual.producto_id == item.producto_id, StockActual.cantidad > 0)
+                .order_by(StockActual.cantidad.desc())
+            )
+            stocks = stock_result.scalars().all()
+            
+            cantidad_restante = item.cantidad
+            for stock in stocks:
+                if cantidad_restante <= 0:
+                    break
+                    
+                a_descontar = min(stock.cantidad, cantidad_restante)
+                stock.cantidad -= a_descontar
+                cantidad_restante -= a_descontar
+                
+                mov = MovimientoStock(
+                    producto_id=item.producto_id,
+                    almacen_id=stock.almacen_id,
+                    tipo=TipoMovimientoStock.SALIDA,
+                    cantidad=-a_descontar,
+                    referencia_tipo='venta',
+                    referencia_id=venta.id
+                )
+                db.add(mov)
+        
+        elif item.materia_laboratorio_id:
+            materia_result = await db.execute(
+                select(MateriaLaboratorio).where(MateriaLaboratorio.id == item.materia_laboratorio_id)
+            )
+            materia = materia_result.scalar_one_or_none()
+            if materia:
+                materia.estado = EstadoMateria.VENDIDO
+    
+    venta.estado = EstadoVenta.CONFIRMADA
+    
+    # Si es venta a crédito, crear registro de crédito
+    if venta.tipo_pago == TipoPago.CREDITO:
+        cliente_credito_id = venta.representante_cliente_id or venta.cliente_id
+        
+        credito = CreditoCliente(
+            cliente_id=cliente_credito_id,
+            venta_id=venta.id,
+            monto_original=venta.total,
+            monto_pendiente=venta.total,
+            descripcion=f"Venta #{venta.id}",
+            fecha_venta=today_paraguay()
+        )
+        db.add(credito)
+    
+    # Si es delivery, crear entrega automáticamente en estado PENDIENTE
+    if venta.es_delivery:
+        entrega_existente = await db.execute(
+            select(Entrega).where(Entrega.venta_id == venta.id)
+        )
+        if not entrega_existente.scalar_one_or_none():
+            entrega = Entrega(
+                venta_id=venta.id,
+                vehiculo_id=None,
+                responsable_usuario_id=None,
+                estado=EstadoEntrega.PENDIENTE
+            )
+            db.add(entrega)
+    
+    await db.commit()
+    await db.refresh(venta)
+    return venta
+
 @api_router.get("/ventas", response_model=List[VentaConDetalles])
 async def listar_ventas(
     empresa_id: int,
@@ -1325,6 +1543,7 @@ async def listar_ventas(
     fecha_hasta: Optional[str] = None,
     cliente_id: Optional[int] = None,
     usuario_id: Optional[int] = None,
+    estado: Optional[str] = None,
     monto_min: Optional[float] = None,
     monto_max: Optional[float] = None,
     db: AsyncSession = Depends(get_db)
@@ -1344,6 +1563,11 @@ async def listar_ventas(
         query = query.where(Venta.cliente_id == cliente_id)
     if usuario_id:
         query = query.where(Venta.usuario_id == usuario_id)
+    if estado:
+        try:
+            query = query.where(Venta.estado == EstadoVenta[estado])
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Estado '{estado}' no válido")
     if monto_min:
         query = query.where(Venta.total >= monto_min)
     if monto_max:
@@ -2658,6 +2882,7 @@ async def reporte_ventas(
     fecha_hasta: str,
     tipo_pago: str = None,
     estado: str = None,
+    cliente_id: int = None,
     db: AsyncSession = Depends(get_db)
 ):
     """Genera reporte PDF de ventas por rango de fechas con filtros"""
@@ -2676,6 +2901,10 @@ async def reporte_ventas(
             Venta.creado_en < fecha_fin
         )
     )
+    
+    # Apply cliente_id filter if provided
+    if cliente_id:
+        query = query.where(Venta.cliente_id == cliente_id)
     
     # Apply estado filter (default: CONFIRMADA)
     if estado:
@@ -2748,6 +2977,102 @@ async def reporte_ventas(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=reporte_ventas_{fecha_desde}_{fecha_hasta}.pdf"}
+    )
+
+@api_router.get("/reportes/historial-ventas")
+async def reporte_historial_ventas(
+    empresa_id: int,
+    fecha_desde: str = None,
+    fecha_hasta: str = None,
+    cliente_id: int = None,
+    usuario_id: int = None,
+    estado: str = None,
+    monto_min: float = None,
+    monto_max: float = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Genera reporte PDF del historial de ventas con filtros aplicados"""
+    query = (
+        select(Venta, Cliente)
+        .join(Cliente, Venta.cliente_id == Cliente.id)
+        .where(Venta.empresa_id == empresa_id)
+        .order_by(Venta.creado_en.desc())
+    )
+    
+    # Apply filters
+    if fecha_desde:
+        query = query.where(Venta.creado_en >= datetime.fromisoformat(fecha_desde))
+    if fecha_hasta:
+        query = query.where(Venta.creado_en <= datetime.fromisoformat(fecha_hasta) + timedelta(days=1))
+    if cliente_id:
+        query = query.where(Venta.cliente_id == cliente_id)
+    if usuario_id:
+        query = query.where(Venta.usuario_id == usuario_id)
+    if estado:
+        try:
+            query = query.where(Venta.estado == EstadoVenta[estado])
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Estado '{estado}' no válido")
+    if monto_min:
+        query = query.where(Venta.total >= monto_min)
+    if monto_max:
+        query = query.where(Venta.total <= monto_max)
+    
+    result = await db.execute(query)
+    ventas = result.all()
+    
+    if not ventas:
+        # Return empty PDF
+        subtitle = "Sin registros para los filtros aplicados"
+        pdf_bytes = crear_pdf_reporte("Historial de Ventas", subtitle, ['Info'], [['No se encontraron ventas']], None)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=historial_ventas_vacio.pdf"}
+        )
+    
+    # Build table data
+    columnas = ['ID', 'Fecha', 'Cliente', 'Tipo Pago', 'Estado', 'Total']
+    datos = []
+    total_general = Decimal('0')
+    cantidad_confirmadas = 0
+    
+    for venta, cliente in ventas:
+        if venta.estado == EstadoVenta.CONFIRMADA:
+            total_general += venta.total
+            cantidad_confirmadas += 1
+        
+        estado_text = venta.estado.value if venta.estado else 'N/A'
+        datos.append([
+            str(venta.id),
+            venta.creado_en.strftime('%d/%m/%Y %H:%M'),
+            f"{cliente.nombre} {cliente.apellido or ''}".strip()[:20],
+            venta.tipo_pago.value if venta.tipo_pago else 'EFECTIVO',
+            estado_text,
+            f"{float(venta.total):,.0f}"
+        ])
+    
+    # Build subtitle with filters and summary
+    subtitle_parts = []
+    if fecha_desde:
+        subtitle_parts.append(f"Desde: {fecha_desde}")
+    if fecha_hasta:
+        subtitle_parts.append(f"Hasta: {fecha_hasta}")
+    if estado:
+        subtitle_parts.append(f"Estado: {estado}")
+    
+    subtitle = " | ".join(subtitle_parts) if subtitle_parts else "Todas las ventas"
+    subtitle += f" | Total registros: {len(ventas)} | Confirmadas: {cantidad_confirmadas}"
+    
+    totales = ['', '', '', '', 'TOTAL CONFIRMADO:', f"{float(total_general):,.0f}"]
+    
+    pdf_bytes = crear_pdf_reporte("Historial de Ventas", subtitle, columnas, datos, totales)
+    
+    filename = f"historial_ventas_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 @api_router.get("/reportes/stock")

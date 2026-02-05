@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -42,6 +42,12 @@ import PrintModal from '../components/PrintModal';
 const Ventas = () => {
   const { api, empresa, user } = useApp();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  
+  // Editing existing sale
+  const editVentaId = searchParams.get('edit');
+  const [editingVenta, setEditingVenta] = useState(null);
+  const [isEditMode, setIsEditMode] = useState(false);
   
   // State
   const [clientes, setClientes] = useState([]);
@@ -55,6 +61,7 @@ const Ventas = () => {
   const [isRepresentante, setIsRepresentante] = useState(false);
   const [cart, setCart] = useState([]);
   const [tipoPago, setTipoPago] = useState('EFECTIVO');
+  const [crearPendiente, setCrearPendiente] = useState(false);
   const [esDelivery, setEsDelivery] = useState(false);
   const [vehiculoId, setVehiculoId] = useState('');
   const [responsableId, setResponsableId] = useState('');
@@ -105,6 +112,64 @@ const Ventas = () => {
     
     fetchData();
   }, [empresa?.id, api]);
+
+  // Load existing sale if editing
+  useEffect(() => {
+    const loadEditVenta = async () => {
+      if (!editVentaId || !empresa?.id) return;
+      
+      try {
+        const venta = await api(`/ventas/${editVentaId}`);
+        
+        if (venta.estado !== 'PENDIENTE') {
+          toast.error('Solo se pueden editar ventas PENDIENTES');
+          navigate('/ventas');
+          return;
+        }
+        
+        setEditingVenta(venta);
+        setIsEditMode(true);
+        
+        // Load cliente
+        const cliente = clientes.find(c => c.id === venta.cliente_id);
+        if (cliente) setSelectedCliente(cliente);
+        
+        // Load representante if exists
+        if (venta.representante_cliente_id) {
+          const rep = clientes.find(c => c.id === venta.representante_cliente_id);
+          if (rep) {
+            setRepresentante(rep);
+            setIsRepresentante(true);
+          }
+        }
+        
+        // Load cart items
+        const cartItems = venta.items.map(item => ({
+          producto_id: item.producto_id || null,
+          materia_laboratorio_id: item.materia_laboratorio_id || null,
+          nombre: item.producto_nombre || item.materia_nombre || 'Producto',
+          cantidad: item.cantidad,
+          precio_unitario: parseFloat(item.precio_unitario),
+          observaciones: item.observaciones || ''
+        }));
+        setCart(cartItems);
+        
+        // Load other fields
+        setTipoPago(venta.tipo_pago || 'EFECTIVO');
+        setEsDelivery(venta.es_delivery || false);
+        
+        toast.info('Venta pendiente cargada - Puede editarla');
+      } catch (e) {
+        console.error('Error loading venta:', e);
+        toast.error('Error al cargar la venta');
+        navigate('/ventas');
+      }
+    };
+    
+    if (clientes.length > 0) {
+      loadEditVenta();
+    }
+  }, [editVentaId, empresa?.id, api, clientes, navigate]);
 
   // Barcode scanner handler
   const handleBarcodeSearch = useCallback(async (code) => {
@@ -285,17 +350,63 @@ const Ventas = () => {
   };
 
   const handleSubmit = async () => {
+    if (!selectedCliente) {
+      toast.error('Seleccione un cliente');
+      return;
+    }
+    
+    if (cart.length === 0) {
+      toast.error('Agregue productos al carrito');
+      return;
+    }
+    
     setSubmitting(true);
     setCashModalOpen(false);
+    
     try {
-      // Create sale
+      // Caso 1: EDITAR venta pendiente existente
+      if (isEditMode && editingVenta) {
+        const updateData = {
+          cliente_id: selectedCliente.id,
+          representante_cliente_id: isRepresentante ? representante?.id : null,
+          tipo_pago: tipoPago,
+          es_delivery: esDelivery,
+          items: cart.map(item => ({
+            producto_id: item.producto_id || null,
+            materia_laboratorio_id: item.materia_laboratorio_id || null,
+            cantidad: item.cantidad,
+            precio_unitario: item.precio_unitario,
+            observaciones: item.observaciones || null
+          }))
+        };
+        
+        // Update the sale
+        await api(`/ventas/${editingVenta.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(updateData)
+        });
+        
+        // Ask if user wants to confirm the sale now
+        if (window.confirm('¿Desea confirmar esta venta ahora? (Se validará stock y crédito)')) {
+          await api(`/ventas/${editingVenta.id}/confirmar-pendiente`, { method: 'POST' });
+          toast.success('Venta actualizada y confirmada');
+        } else {
+          toast.success('Venta actualizada - Sigue pendiente');
+        }
+        
+        // Redirect to historial
+        navigate('/historial-ventas');
+        return;
+      }
+      
+      // Caso 2: CREAR nueva venta
       const ventaData = {
         empresa_id: empresa.id,
         cliente_id: selectedCliente.id,
+        representante_cliente_id: isRepresentante ? representante?.id : null,
         usuario_id: user.id,
-        representante_cliente_id: isRepresentante && representante ? representante.id : null,
-        tipo_pago: tipoPago,
         es_delivery: esDelivery,
+        tipo_pago: tipoPago,
         items: cart.map(item => ({
           producto_id: item.producto_id || null,
           materia_laboratorio_id: item.materia_laboratorio_id || null,
@@ -305,19 +416,34 @@ const Ventas = () => {
         }))
       };
       
-      const venta = await api('/ventas', {
-        method: 'POST',
-        body: JSON.stringify(ventaData)
-      });
-      
-      // Confirm sale (this creates the delivery entry if es_delivery=true)
-      await api(`/ventas/${venta.id}/confirmar`, { method: 'POST' });
-      
-      toast.success(esDelivery ? 'Venta creada - Asigne delivery desde el módulo Delivery' : 'Venta creada exitosamente');
-      
-      // Store venta ID for printing and show print modal
-      setLastVentaId(venta.id);
-      setPrintModalOpen(true);
+      // Si crear como pendiente
+      if (crearPendiente) {
+        const venta = await api('/ventas?crear_pendiente=true', {
+          method: 'POST',
+          body: JSON.stringify(ventaData)
+        });
+        
+        toast.success('Venta creada como PENDIENTE - Puede confirmarla desde Historial de Ventas');
+        
+        // Store venta ID for printing and show print modal
+        setLastVentaId(venta.id);
+        setPrintModalOpen(true);
+      } else {
+        // Flujo normal: crear y confirmar
+        const venta = await api('/ventas', {
+          method: 'POST',
+          body: JSON.stringify(ventaData)
+        });
+        
+        // Confirm sale (this creates the delivery entry if es_delivery=true)
+        await api(`/ventas/${venta.id}/confirmar`, { method: 'POST' });
+        
+        toast.success(esDelivery ? 'Venta creada - Asigne delivery desde el módulo Delivery' : 'Venta creada exitosamente');
+        
+        // Store venta ID for printing and show print modal
+        setLastVentaId(venta.id);
+        setPrintModalOpen(true);
+      }
       
       // Reset form
       setSelectedCliente(null);
@@ -325,6 +451,7 @@ const Ventas = () => {
       setIsRepresentante(false);
       setCart([]);
       setTipoPago('EFECTIVO');
+      setCrearPendiente(false);
       setEsDelivery(false);
       setVehiculoId('');
       setResponsableId('');
@@ -334,7 +461,7 @@ const Ventas = () => {
       setMaterias(newMaterias);
       
     } catch (e) {
-      toast.error(e.message || 'Error al crear venta');
+      toast.error(e.message || 'Error al procesar venta');
     } finally {
       setSubmitting(false);
     }
@@ -720,6 +847,20 @@ const Ventas = () => {
                 )}
               </div>
 
+              {/* Crear como Pendiente Option - Solo visible en modo creación */}
+              {!isEditMode && (
+                <div className="flex items-center space-x-2 bg-yellow-50 p-2 rounded">
+                  <Checkbox
+                    id="crearPendiente"
+                    checked={crearPendiente}
+                    onCheckedChange={setCrearPendiente}
+                  />
+                  <Label htmlFor="crearPendiente" className="text-sm">
+                    Crear como venta pendiente (sin confirmar pago)
+                  </Label>
+                </div>
+              )}
+
               {/* Delivery Option */}
               <div className="flex items-center space-x-2">
                 <Checkbox
@@ -758,10 +899,16 @@ const Ventas = () => {
               ) : (
                 <>
                   <Check className="mr-2 h-4 w-4" />
-                  Confirmar Venta
+                  {isEditMode ? 'Actualizar Venta Pendiente' : 'Confirmar Venta'}
                 </>
               )}
             </Button>
+            
+            {isEditMode && (
+              <p className="text-xs text-muted-foreground text-center mt-2">
+                Al actualizar, se preguntará si desea confirmar el pago
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

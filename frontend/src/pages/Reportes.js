@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -12,15 +12,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from '../components/ui/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '../components/ui/popover';
 import { 
   FileText, Download, Loader2, Package, Users, Building2, 
-  DollarSign, Calendar
+  DollarSign, Calendar, Search, X, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '../lib/utils';
 
 const Reportes = () => {
-  const { empresa, API_URL, token } = useApp();
+  const { empresa, API_URL, token, api } = useApp();
   const [loading, setLoading] = useState({});
+  const [clientes, setClientes] = useState([]);
+  const [clientesLoading, setClientesLoading] = useState(true);
   
   // Filters for Ventas report
   const [ventasFechaDesde, setVentasFechaDesde] = useState(
@@ -31,6 +46,9 @@ const Reportes = () => {
   );
   const [ventasTipoPago, setVentasTipoPago] = useState('TODOS');
   const [ventasEstado, setVentasEstado] = useState('CONFIRMADA');
+  const [ventasClienteId, setVentasClienteId] = useState(null);
+  const [ventasClienteSearch, setVentasClienteSearch] = useState('');
+  const [clientePopoverOpen, setClientePopoverOpen] = useState(false);
   
   // Filters for Stock report
   const [stockFechaDesde, setStockFechaDesde] = useState('');
@@ -46,6 +64,36 @@ const Reportes = () => {
   const [creditosFechaDesde, setCreditosFechaDesde] = useState('');
   const [creditosFechaHasta, setCreditosFechaHasta] = useState('');
   const [creditosEstado, setCreditosEstado] = useState('PENDIENTE');
+
+  // Load clientes
+  useEffect(() => {
+    const fetchClientes = async () => {
+      if (!empresa?.id) return;
+      try {
+        const data = await api(`/clientes?empresa_id=${empresa.id}`);
+        setClientes(data);
+      } catch (e) {
+        console.error('Error loading clientes:', e);
+      } finally {
+        setClientesLoading(false);
+      }
+    };
+    fetchClientes();
+  }, [empresa?.id, api]);
+
+  // Get selected cliente
+  const selectedCliente = ventasClienteId ? clientes.find(c => c.id === ventasClienteId) : null;
+
+  // Filter clientes by search
+  const filteredClientes = clientes.filter(c => {
+    const searchLower = ventasClienteSearch.toLowerCase();
+    return (
+      c.nombre.toLowerCase().includes(searchLower) ||
+      (c.apellido && c.apellido.toLowerCase().includes(searchLower)) ||
+      c.id.toString() === ventasClienteSearch ||
+      (c.ruc && c.ruc.toLowerCase().includes(searchLower))
+    );
+  });
 
   const downloadReport = async (tipo, params = {}) => {
     if (!empresa?.id) {
@@ -159,13 +207,20 @@ const Reportes = () => {
             { value: 'CONFIRMADA', label: 'Solo Confirmadas' },
             { value: 'ANULADA', label: 'Solo Anuladas' }
           ]
+        },
+        {
+          type: 'clientSearch',
+          label: 'Cliente (Opcional)',
+          clienteId: ventasClienteId,
+          setClienteId: setVentasClienteId
         }
       ],
       getParams: () => ({
         fecha_desde: ventasFechaDesde,
         fecha_hasta: ventasFechaHasta,
         tipo_pago: ventasTipoPago !== 'TODOS' ? ventasTipoPago : undefined,
-        estado: ventasEstado !== 'TODOS' ? ventasEstado : undefined
+        estado: ventasEstado !== 'TODOS' ? ventasEstado : undefined,
+        cliente_id: ventasClienteId || undefined
       })
     },
     {
@@ -349,6 +404,91 @@ const Reportes = () => {
                                 ))}
                               </SelectContent>
                             </Select>
+                          </div>
+                        );
+                      }
+
+                      if (filter.type === 'clientSearch') {
+                        return (
+                          <div key={idx}>
+                            <Label className="text-xs mb-1 block">{filter.label}</Label>
+                            {selectedCliente ? (
+                              <div className="flex items-center justify-between p-2 bg-secondary rounded-md text-sm">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium truncate">
+                                    {selectedCliente.nombre} {selectedCliente.apellido || ''}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    ID: {selectedCliente.id} | RUC: {selectedCliente.ruc || 'N/A'}
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 ml-2"
+                                  onClick={() => {
+                                    filter.setClienteId(null);
+                                    setVentasClienteSearch('');
+                                  }}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <Popover open={clientePopoverOpen} onOpenChange={setClientePopoverOpen}>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    className="w-full justify-start text-sm h-9"
+                                  >
+                                    <Search className="mr-2 h-3 w-3" />
+                                    Buscar por ID o nombre...
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[300px] p-0" align="start">
+                                  <Command>
+                                    <CommandInput
+                                      placeholder="ID, nombre o RUC..."
+                                      value={ventasClienteSearch}
+                                      onValueChange={setVentasClienteSearch}
+                                    />
+                                    <CommandEmpty>
+                                      {clientesLoading ? 'Cargando...' : 'No se encontraron clientes'}
+                                    </CommandEmpty>
+                                    <CommandGroup className="max-h-64 overflow-auto">
+                                      {filteredClientes.slice(0, 50).map((cliente) => (
+                                        <CommandItem
+                                          key={cliente.id}
+                                          value={cliente.id.toString()}
+                                          onSelect={() => {
+                                            filter.setClienteId(cliente.id);
+                                            setClientePopoverOpen(false);
+                                            setVentasClienteSearch('');
+                                          }}
+                                          className="text-sm"
+                                        >
+                                          <Check
+                                            className={cn(
+                                              'mr-2 h-3 w-3',
+                                              filter.clienteId === cliente.id ? 'opacity-100' : 'opacity-0'
+                                            )}
+                                          />
+                                          <div className="flex-1 min-w-0">
+                                            <p className="font-medium truncate">
+                                              {cliente.nombre} {cliente.apellido || ''}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground truncate">
+                                              ID: {cliente.id} | RUC: {cliente.ruc || 'N/A'}
+                                            </p>
+                                          </div>
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
+                            )}
                           </div>
                         );
                       }

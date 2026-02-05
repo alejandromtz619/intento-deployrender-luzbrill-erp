@@ -28,7 +28,7 @@ import {
 } from '../components/ui/dialog';
 import { 
   History, Search, Filter, Printer, FileText, Receipt, Eye, 
-  Loader2, Calendar, DollarSign, User, XCircle 
+  Loader2, Calendar, DollarSign, User, XCircle, Edit 
 } from 'lucide-react';
 import { toast } from 'sonner';
 import PrintModal from '../components/PrintModal';
@@ -43,7 +43,7 @@ const formatCurrency = (val) => {
 };
 
 const HistorialVentas = () => {
-  const { api, empresa } = useApp();
+  const { api, empresa, API_URL, token } = useApp();
   const [ventas, setVentas] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
@@ -61,6 +61,7 @@ const HistorialVentas = () => {
     fecha_hasta: '',
     cliente_id: '',
     usuario_id: '',
+    estado: '',
     monto_min: '',
     monto_max: '',
   });
@@ -76,6 +77,7 @@ const HistorialVentas = () => {
       if (filters.fecha_hasta) endpoint += `&fecha_hasta=${filters.fecha_hasta}`;
       if (filters.cliente_id && filters.cliente_id !== 'all') endpoint += `&cliente_id=${filters.cliente_id}`;
       if (filters.usuario_id && filters.usuario_id !== 'all') endpoint += `&usuario_id=${filters.usuario_id}`;
+      if (filters.estado && filters.estado !== 'all') endpoint += `&estado=${filters.estado}`;
       if (filters.monto_min) endpoint += `&monto_min=${filters.monto_min}`;
       if (filters.monto_max) endpoint += `&monto_max=${filters.monto_max}`;
       
@@ -117,6 +119,7 @@ const HistorialVentas = () => {
       fecha_hasta: '',
       cliente_id: '',
       usuario_id: '',
+      estado: '',
       monto_min: '',
       monto_max: '',
     });
@@ -152,14 +155,63 @@ const HistorialVentas = () => {
     }
   };
 
+  const handleDescargarPDF = async () => {
+    if (!empresa?.id) {
+      toast.error('No se ha seleccionado una empresa');
+      return;
+    }
+    
+    if (ventas.length === 0) {
+      toast.error('No hay ventas para exportar');
+      return;
+    }
+    
+    try {
+      let url = `${API_URL}/reportes/historial-ventas?empresa_id=${empresa.id}`;
+      
+      if (filters.fecha_desde) url += `&fecha_desde=${filters.fecha_desde}`;
+      if (filters.fecha_hasta) url += `&fecha_hasta=${filters.fecha_hasta}`;
+      if (filters.cliente_id && filters.cliente_id !== 'all') url += `&cliente_id=${filters.cliente_id}`;
+      if (filters.usuario_id && filters.usuario_id !== 'all') url += `&usuario_id=${filters.usuario_id}`;
+      if (filters.estado && filters.estado !== 'all') url += `&estado=${filters.estado}`;
+      if (filters.monto_min) url += `&monto_min=${filters.monto_min}`;
+      if (filters.monto_max) url += `&monto_max=${filters.monto_max}`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Error al generar PDF');
+      
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `historial-ventas-${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      toast.success('PDF descargado exitosamente');
+    } catch (e) {
+      console.error('Error downloading PDF:', e);
+      toast.error('Error al descargar PDF');
+    }
+  };
+
   const getEstadoBadge = (estado) => {
     switch (estado) {
-      case 'COMPLETADA':
-        return <Badge className="badge-success">Completada</Badge>;
+      case 'CONFIRMADA':
+        return <Badge className="bg-green-500 text-white hover:bg-green-600">Confirmada</Badge>;
       case 'PENDIENTE':
-        return <Badge className="badge-warning">Pendiente</Badge>;
+        return <Badge className="bg-yellow-500 text-white hover:bg-yellow-600">Pendiente</Badge>;
       case 'ANULADA':
         return <Badge variant="destructive">Anulada</Badge>;
+      case 'BORRADOR':
+        return <Badge variant="outline">Borrador</Badge>;
       default:
         return <Badge>{estado}</Badge>;
     }
@@ -180,14 +232,23 @@ const HistorialVentas = () => {
           <h1 className="text-2xl font-bold">Historial de Ventas</h1>
           <p className="text-muted-foreground">Consulta y reimpresión de documentos</p>
         </div>
-        <Button 
-          variant="outline" 
-          onClick={() => setShowFilters(!showFilters)}
-          data-testid="toggle-filters-btn"
-        >
-          <Filter className="mr-2 h-4 w-4" />
-          Filtros
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => setShowFilters(!showFilters)}
+            data-testid="toggle-filters-btn"
+          >
+            <Filter className="mr-2 h-4 w-4" />
+            {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+          </Button>
+          <Button 
+            onClick={handleDescargarPDF}
+            disabled={ventas.length === 0}
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Generar PDF
+          </Button>
+        </div>
       </div>
 
       {/* Filters Panel */}
@@ -246,6 +307,23 @@ const HistorialVentas = () => {
                         {u.nombre} {u.apellido || ''}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Estado</Label>
+                <Select 
+                  value={filters.estado || 'all'} 
+                  onValueChange={(v) => setFilters({...filters, estado: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    <SelectItem value="CONFIRMADA">Confirmadas</SelectItem>
+                    <SelectItem value="PENDIENTE">Pendientes</SelectItem>
+                    <SelectItem value="ANULADA">Anuladas</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -341,6 +419,16 @@ const HistorialVentas = () => {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
+                          {venta.estado === 'PENDIENTE' && (
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => window.location.href = `/ventas?edit=${venta.id}`}
+                              title="Editar venta pendiente"
+                            >
+                              <Edit className="h-4 w-4 text-yellow-600" />
+                            </Button>
+                          )}
                           <Button 
                             variant="ghost" 
                             size="icon" 

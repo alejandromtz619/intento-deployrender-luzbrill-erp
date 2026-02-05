@@ -6,6 +6,7 @@ import {
   FlaskConical, Warehouse, Car, FileText, Settings, UserCog, LogOut,
   Menu, X, ChevronDown, Sun, Moon, Tag, Shield, History, FileBarChart
 } from 'lucide-react';
+import Clock from './Clock';
 import { Button } from '../components/ui/button';
 import { ScrollArea } from '../components/ui/scroll-area';
 import {
@@ -138,7 +139,13 @@ const Layout = ({ children }) => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            {/* Clock */}
+            <div className="hidden md:block">
+              <Clock />
+            </div>
+
+            <div className="flex items-center gap-2">
             {/* Theme toggle */}
             <Button
               variant="ghost"
@@ -179,6 +186,7 @@ const Layout = ({ children }) => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </div>
           </div>
         </header>
 
