@@ -4,7 +4,16 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import enum
+
+# Timezone configuration
+PARAGUAY_TZ = ZoneInfo("America/Asuncion")
+
+def now_paraguay():
+    """Obtiene la fecha y hora actual en zona horaria de Paraguay"""
+    return datetime.now(PARAGUAY_TZ)
 
 # Enums
 class RolSistema(str, enum.Enum):
@@ -173,7 +182,7 @@ class CreditoCliente(Base):
     descripcion = Column(Text)
     fecha_venta = Column(Date, default=func.current_date())
     pagado = Column(Boolean, default=False)
-    creado_en = Column(DateTime(timezone=True), server_default=func.now())
+    creado_en = Column(DateTime(timezone=True), default=now_paraguay)
     
     cliente = relationship("Cliente", back_populates="creditos")
     pagos = relationship("PagoCredito", back_populates="credito")
@@ -185,7 +194,7 @@ class PagoCredito(Base):
     id = Column(Integer, primary_key=True, index=True)
     credito_id = Column(Integer, ForeignKey("creditos_clientes.id"), nullable=False)
     monto = Column(Numeric(15, 2), nullable=False)
-    fecha_pago = Column(DateTime(timezone=True), server_default=func.now())
+    fecha_pago = Column(DateTime(timezone=True), default=now_paraguay)
     observacion = Column(Text)
     
     credito = relationship("CreditoCliente", back_populates="pagos")
@@ -287,7 +296,7 @@ class MateriaLaboratorio(Base):
     codigo_barra = Column(String(100), unique=True)
     precio = Column(Numeric(15, 2), nullable=False)
     estado = Column(Enum(EstadoMateria), default=EstadoMateria.DISPONIBLE)
-    creado_en = Column(DateTime(timezone=True), server_default=func.now())
+    creado_en = Column(DateTime(timezone=True), default=now_paraguay)
     
     empresa = relationship("Empresa", back_populates="materias_laboratorio")
     venta_items = relationship("VentaItem", back_populates="materia_laboratorio")
@@ -326,7 +335,7 @@ class MovimientoStock(Base):
     cantidad = Column(Integer, nullable=False)
     referencia_tipo = Column(String(50))
     referencia_id = Column(Integer)
-    creado_en = Column(DateTime(timezone=True), server_default=func.now())
+    creado_en = Column(DateTime(timezone=True), default=now_paraguay)
     
     producto = relationship("Producto", back_populates="movimientos")
     almacen = relationship("Almacen", back_populates="movimientos")
@@ -345,7 +354,7 @@ class Venta(Base):
     tipo_pago = Column(Enum(TipoPago), default=TipoPago.EFECTIVO)
     es_delivery = Column(Boolean, default=False)
     estado = Column(Enum(EstadoVenta), default=EstadoVenta.BORRADOR)
-    creado_en = Column(DateTime(timezone=True), server_default=func.now())
+    creado_en = Column(DateTime(timezone=True), default=now_paraguay)
     
     empresa = relationship("Empresa", back_populates="ventas")
     cliente = relationship("Cliente", back_populates="ventas", foreign_keys=[cliente_id])
@@ -451,7 +460,7 @@ class Factura(Base):
     total = Column(Numeric(15, 2), nullable=False)
     iva = Column(Numeric(15, 2), nullable=False)
     estado = Column(String(50), default="EMITIDA")
-    creado_en = Column(DateTime(timezone=True), server_default=func.now())
+    creado_en = Column(DateTime(timezone=True), default=now_paraguay)
     
     venta = relationship("Venta", back_populates="factura")
     documento = relationship("DocumentoElectronico", back_populates="factura", uselist=False)

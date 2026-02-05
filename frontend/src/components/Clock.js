@@ -35,12 +35,12 @@ const Clock = ({ className = "" }) => {
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <ClockIcon className="h-4 w-4 text-neutral-400" />
+      <ClockIcon className="h-4 w-4 text-muted-foreground" />
       <div className="flex flex-col leading-tight">
-        <span className="font-mono text-sm font-semibold text-neutral-100">
+        <span className="font-mono text-sm font-semibold text-foreground">
           {formatTime(time)}
         </span>
-        <span className="font-mono text-xs text-neutral-400">
+        <span className="font-mono text-xs text-muted-foreground">
           {formatDate(time)}
         </span>
       </div>

@@ -849,13 +849,13 @@ const Ventas = () => {
 
               {/* Crear como Pendiente Option - Solo visible en modo creación */}
               {!isEditMode && (
-                <div className="flex items-center space-x-2 bg-yellow-50 p-2 rounded">
+                <div className="flex items-center space-x-2 bg-yellow-50 dark:bg-yellow-950/30 p-2 rounded border border-yellow-200 dark:border-yellow-800">
                   <Checkbox
                     id="crearPendiente"
                     checked={crearPendiente}
                     onCheckedChange={setCrearPendiente}
                   />
-                  <Label htmlFor="crearPendiente" className="text-sm">
+                  <Label htmlFor="crearPendiente" className="text-sm text-yellow-900 dark:text-yellow-100">
                     Crear como venta pendiente (sin confirmar pago)
                   </Label>
                 </div>
