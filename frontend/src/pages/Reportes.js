@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { DatePicker } from '../components/ui/date-picker';
 import {
   Select,
   SelectContent,
@@ -29,7 +30,7 @@ const Reportes = () => {
     new Date().toISOString().split('T')[0]
   );
   const [ventasTipoPago, setVentasTipoPago] = useState('TODOS');
-  const [ventasEstado, setVentasEstado] = useState('CONFIRMADO');
+  const [ventasEstado, setVentasEstado] = useState('CONFIRMADA');
   
   // Filters for Stock report
   const [stockFechaDesde, setStockFechaDesde] = useState('');
@@ -155,8 +156,8 @@ const Reportes = () => {
           setter: setVentasEstado,
           options: [
             { value: 'TODOS', label: 'Todos los estados' },
-            { value: 'CONFIRMADO', label: 'Solo Confirmadas' },
-            { value: 'ANULADO', label: 'Solo Anuladas' }
+            { value: 'CONFIRMADA', label: 'Solo Confirmadas' },
+            { value: 'ANULADA', label: 'Solo Anuladas' }
           ]
         }
       ],
@@ -310,21 +311,21 @@ const Reportes = () => {
                             )}
                             <div className="grid grid-cols-2 gap-2">
                               <div>
-                                <Label className="text-xs">Desde</Label>
-                                <Input
-                                  type="date"
-                                  value={filter.fromState}
-                                  onChange={(e) => filter.fromSetter(e.target.value)}
-                                  className="text-sm"
+                                <Label className="text-xs mb-1 block">Desde</Label>
+                                <DatePicker
+                                  date={filter.fromState}
+                                  onDateChange={filter.fromSetter}
+                                  placeholder="Desde"
+                                  className="w-full text-sm"
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs">Hasta</Label>
-                                <Input
-                                  type="date"
-                                  value={filter.toState}
-                                  onChange={(e) => filter.toSetter(e.target.value)}
-                                  className="text-sm"
+                                <Label className="text-xs mb-1 block">Hasta</Label>
+                                <DatePicker
+                                  date={filter.toState}
+                                  onDateChange={filter.toSetter}
+                                  placeholder="Hasta"
+                                  className="w-full text-sm"
                                 />
                               </div>
                             </div>

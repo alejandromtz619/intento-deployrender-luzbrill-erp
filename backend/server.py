@@ -2756,8 +2756,9 @@ async def reporte_stock(
         datos = []
         
         for producto, stock in productos:
-            # Check if stock is low (less than 10 units)
-            es_alerta = stock < 10
+            # Check if stock is low (stock <= stock_minimo, default to 10 if not set)
+            stock_minimo = producto.stock_minimo if producto.stock_minimo is not None else 10
+            es_alerta = stock <= stock_minimo
             
             # Filter by solo_alertas if specified
             if solo_alertas == 'true' and not es_alerta:
@@ -2813,15 +2814,19 @@ async def reporte_deudas_proveedores(
             .where(Proveedor.empresa_id == empresa_id)
         )
         
-        # Filter by estado (default: PENDIENTE)
+        # Filter by estado (default: PENDIENTE if not specified)
         if estado:
-            if estado == 'PENDIENTE':
+            if estado == 'TODOS':
+                # No filter, show all
+                pass
+            elif estado == 'PENDIENTE':
                 query = query.where(DeudaProveedor.pagado == False)
             elif estado == 'PAGADO':
                 query = query.where(DeudaProveedor.pagado == True)
             else:
-                raise HTTPException(status_code=400, detail=f"Estado '{estado}' no válido. Use PENDIENTE o PAGADO")
+                raise HTTPException(status_code=400, detail=f"Estado '{estado}' no válido. Use PENDIENTE, PAGADO o TODOS")
         else:
+            # Default to PENDIENTE if estado is None
             query = query.where(DeudaProveedor.pagado == False)
         
         # Filter by fecha_emision range
@@ -2904,15 +2909,19 @@ async def reporte_creditos_clientes(
             .where(Cliente.empresa_id == empresa_id)
         )
         
-        # Filter by estado (default: PENDIENTE)
+        # Filter by estado (default: PENDIENTE if not specified)
         if estado:
-            if estado == 'PENDIENTE':
+            if estado == 'TODOS':
+                # No filter, show all
+                pass
+            elif estado == 'PENDIENTE':
                 query = query.where(CreditoCliente.pagado == False)
             elif estado == 'PAGADO':
                 query = query.where(CreditoCliente.pagado == True)
             else:
-                raise HTTPException(status_code=400, detail=f"Estado '{estado}' no válido. Use PENDIENTE o PAGADO")
+                raise HTTPException(status_code=400, detail=f"Estado '{estado}' no válido. Use PENDIENTE, PAGADO o TODOS")
         else:
+            # Default to PENDIENTE if estado is None
             query = query.where(CreditoCliente.pagado == False)
         
         # Filter by fecha_venta range
@@ -2936,21 +2945,27 @@ async def reporte_creditos_clientes(
         if not creditos:
             raise HTTPException(status_code=404, detail="No se encontraron créditos de clientes con los filtros seleccionados")
         
-        columnas = ['Cliente', 'Venta #', 'Original', 'Pendiente', 'Fecha']
+        columnas = ['Cliente', 'Venta #', 'Original', 'Pagado', 'Pendiente', 'Fecha']
         datos = []
         total_pendiente = Decimal('0')
+        total_pagado = Decimal('0')
+        total_original = Decimal('0')
         
         for credito, cliente in creditos:
+            monto_pagado = credito.monto_original - credito.monto_pendiente
             total_pendiente += credito.monto_pendiente
+            total_pagado += monto_pagado
+            total_original += credito.monto_original
             datos.append([
                 f"{cliente.nombre} {cliente.apellido or ''}".strip()[:25],
                 str(credito.venta_id or '-'),
                 f"{float(credito.monto_original):,.0f}",
+                f"{float(monto_pagado):,.0f}",
                 f"{float(credito.monto_pendiente):,.0f}",
                 credito.fecha_venta.strftime('%d/%m/%Y') if credito.fecha_venta else '-'
             ])
         
-        totales = ['', '', 'TOTAL:', f"{float(total_pendiente):,.0f}", '']
+        totales = ['', 'TOTAL:', f"{float(total_original):,.0f}", f"{float(total_pagado):,.0f}", f"{float(total_pendiente):,.0f}", '']
         
         # Build subtitle
         subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
