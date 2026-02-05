@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from dotenv import load_dotenv
 from pathlib import Path
 from datetime import datetime, timezone, timedelta, date
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import List, Optional
 import os
@@ -58,6 +59,26 @@ from schemas import (
     PreferenciaUsuarioCreate, PreferenciaUsuarioResponse,
     DashboardStats, VentasPorHora, StockBajo, CotizacionDivisa, Alerta
 )
+
+# ==================== TIMEZONE CONFIGURATION ====================
+# Paraguay timezone: America/Asuncion (GMT-4 standard, GMT-3 during DST)
+PARAGUAY_TZ = ZoneInfo("America/Asuncion")
+
+def now_paraguay():
+    """Obtiene la fecha y hora actual en zona horaria de Paraguay"""
+    return datetime.now(PARAGUAY_TZ)
+
+def today_paraguay():
+    """Obtiene la fecha actual (solo fecha) en Paraguay"""
+    return now_paraguay().date()
+
+def get_day_range_paraguay(date_obj):
+    """Obtiene el rango completo de un día en Paraguay (00:00:01 - 23:59:59)"""
+    # Start: 00:00:01 of the day in Paraguay
+    day_start = datetime.combine(date_obj, datetime.min.time()).replace(tzinfo=PARAGUAY_TZ)
+    # End: 23:59:59 of the day in Paraguay
+    day_end = datetime.combine(date_obj, datetime.max.time()).replace(tzinfo=PARAGUAY_TZ)
+    return day_start, day_end
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -123,7 +144,7 @@ def verify_password(password: str, hashed: str) -> bool:
 def create_token(usuario_id: int) -> str:
     payload = {
         "sub": str(usuario_id),
-        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
+        "exp": now_paraguay() + timedelta(hours=JWT_EXPIRATION_HOURS)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -176,7 +197,7 @@ async def root():
 
 @api_router.get("/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"status": "healthy", "timestamp": now_paraguay().isoformat()}
 
 # ==================== EMPRESA ====================
 @api_router.post("/empresas", response_model=EmpresaResponse)
@@ -512,7 +533,7 @@ async def crear_credito_cliente(cliente_id: int, data: dict, db: AsyncSession = 
         monto_original=monto,
         monto_pendiente=monto,
         descripcion=data.get('descripcion'),
-        fecha_venta=date.today()
+        fecha_venta=today_paraguay()
     )
     db.add(credito)
     await db.commit()
@@ -668,7 +689,7 @@ async def crear_deuda_proveedor(proveedor_id: int, data: dict, db: AsyncSession 
         proveedor_id=proveedor_id,
         monto=Decimal(str(data['monto'])),
         descripcion=data.get('descripcion'),
-        fecha_emision=date.today(),
+        fecha_emision=today_paraguay(),
         fecha_limite=fecha_limite_parsed,
         pagado=False
     )
@@ -694,7 +715,7 @@ async def pagar_deuda(deuda_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Deuda no encontrada")
     
     deuda.pagado = True
-    deuda.fecha_pago = date.today()
+    deuda.fecha_pago = today_paraguay()
     await db.commit()
     return {"message": "Deuda marcada como pagada"}
 
@@ -1274,7 +1295,7 @@ async def confirmar_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
             monto_original=venta.total,
             monto_pendiente=venta.total,
             descripcion=f"Venta #{venta.id}",
-            fecha_venta=date.today()
+            fecha_venta=today_paraguay()
         )
         db.add(credito)
     
@@ -1715,8 +1736,8 @@ async def listar_funcionarios(empresa_id: int, db: AsyncSession = Depends(get_db
             select(func_sql.coalesce(func_sql.sum(AdelantoSalario.monto), 0))
             .where(
                 AdelantoSalario.funcionario_id == funcionario.id,
-                func_sql.extract('year', AdelantoSalario.creado_en) == date.today().year,
-                func_sql.extract('month', AdelantoSalario.creado_en) == date.today().month
+                func_sql.extract('year', AdelantoSalario.creado_en) == today_paraguay().year,
+                func_sql.extract('month', AdelantoSalario.creado_en) == today_paraguay().month
             )
         )
         total_adelantos = adelantos_result.scalar() or Decimal('0')
@@ -1791,11 +1812,11 @@ async def listar_adelantos(funcionario_id: int, periodo: Optional[str] = None, d
     
     if periodo:
         year, month = map(int, periodo.split('-'))
-        start_date = datetime(year, month, 1, tzinfo=timezone.utc)
+        start_date = datetime(year, month, 1, tzinfo=PARAGUAY_TZ)
         if month == 12:
-            end_date = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+            end_date = datetime(year + 1, 1, 1, tzinfo=PARAGUAY_TZ)
         else:
-            end_date = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+            end_date = datetime(year, month + 1, 1, tzinfo=PARAGUAY_TZ)
         query = query.where(
             AdelantoSalario.creado_en >= start_date,
             AdelantoSalario.creado_en < end_date
@@ -2036,7 +2057,7 @@ async def obtener_cotizacion():
             usd_pyg=Decimal(str(MANUAL_CURRENCY_RATES['usd_pyg'])),
             brl_pyg=Decimal(str(MANUAL_CURRENCY_RATES['brl_pyg'])),
             manual=True,
-            fecha_actualizacion=MANUAL_CURRENCY_RATES['updated_at'] or datetime.now(timezone.utc)
+            fecha_actualizacion=MANUAL_CURRENCY_RATES['updated_at'] or now_paraguay()
         )
     
     try:
@@ -2055,7 +2076,7 @@ async def obtener_cotizacion():
                 usd_pyg=usd_pyg,
                 brl_pyg=brl_pyg.quantize(Decimal('0.01')),
                 manual=False,
-                fecha_actualizacion=datetime.now(timezone.utc)
+                fecha_actualizacion=now_paraguay()
             )
     except Exception as e:
         logger.error(f"Error fetching exchange rates: {e}")
@@ -2065,13 +2086,13 @@ async def obtener_cotizacion():
                 usd_pyg=Decimal(str(MANUAL_CURRENCY_RATES['usd_pyg'])),
                 brl_pyg=Decimal(str(MANUAL_CURRENCY_RATES['brl_pyg'])),
                 manual=True,
-                fecha_actualizacion=MANUAL_CURRENCY_RATES['updated_at'] or datetime.now(timezone.utc)
+                fecha_actualizacion=MANUAL_CURRENCY_RATES['updated_at'] or now_paraguay()
             )
         return CotizacionDivisa(
             usd_pyg=Decimal('7500'),
             brl_pyg=Decimal('1500'),
             manual=True,
-            fecha_actualizacion=datetime.now(timezone.utc)
+            fecha_actualizacion=now_paraguay()
         )
 
 @api_router.post("/cotizacion/manual")
@@ -2082,7 +2103,7 @@ async def establecer_cotizacion_manual(data: dict):
     MANUAL_CURRENCY_RATES['usd_pyg'] = data.get('usd_pyg')
     MANUAL_CURRENCY_RATES['brl_pyg'] = data.get('brl_pyg')
     MANUAL_CURRENCY_RATES['manual'] = data.get('manual', True)
-    MANUAL_CURRENCY_RATES['updated_at'] = datetime.now(timezone.utc)
+    MANUAL_CURRENCY_RATES['updated_at'] = now_paraguay()
     
     return {"message": "Cotización manual establecida", "data": MANUAL_CURRENCY_RATES}
 
@@ -2096,9 +2117,8 @@ async def activar_cotizacion_automatica():
 # ==================== DASHBOARD ====================
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
 async def obtener_estadisticas_dashboard(empresa_id: int, db: AsyncSession = Depends(get_db)):
-    today = datetime.now(timezone.utc).date()
-    today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
-    today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
+    today = today_paraguay()
+    today_start, today_end = get_day_range_paraguay(today)
     
     ventas_hoy_result = await db.execute(
         select(
@@ -2226,7 +2246,7 @@ async def obtener_ventas_por_periodo(
     periodo: dia, semana, mes, trimestre, semestre, anio
     tipo_pago: credito (solo CREDITO), contado (EFECTIVO, CHEQUE, TRANSFERENCIA, TARJETA), None (todos)
     """
-    now = datetime.now(timezone.utc)
+    now = now_paraguay()
     today = now.date()
     
     # Build base filters
@@ -2248,8 +2268,8 @@ async def obtener_ventas_por_periodo(
     
     if periodo == "dia":
         # Ventas por hora del día actual
-        today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
-        today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
+        today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=PARAGUAY_TZ)
+        today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=PARAGUAY_TZ)
         
         base_filters.extend([
             Venta.creado_en >= today_start,
@@ -2280,7 +2300,7 @@ async def obtener_ventas_por_periodo(
     elif periodo == "semana":
         # Últimos 7 días
         fecha_inicio = today - timedelta(days=6)
-        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=PARAGUAY_TZ)
         
         base_filters.append(Venta.creado_en >= fecha_inicio_dt)
         
@@ -2323,7 +2343,7 @@ async def obtener_ventas_por_periodo(
     elif periodo == "mes":
         # Último mes (30 días) agrupado por día
         fecha_inicio = today - timedelta(days=29)
-        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=PARAGUAY_TZ)
         
         base_filters.append(Venta.creado_en >= fecha_inicio_dt)
         
@@ -2364,7 +2384,7 @@ async def obtener_ventas_por_periodo(
     elif periodo == "trimestre":
         # Últimos 3 meses agrupado por semana
         fecha_inicio = today - timedelta(days=90)
-        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=PARAGUAY_TZ)
         
         base_filters.append(Venta.creado_en >= fecha_inicio_dt)
         
@@ -2406,7 +2426,7 @@ async def obtener_ventas_por_periodo(
     elif periodo == "semestre":
         # Últimos 6 meses agrupado por mes
         fecha_inicio = today - timedelta(days=180)
-        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=PARAGUAY_TZ)
         
         base_filters.append(Venta.creado_en >= fecha_inicio_dt)
         
@@ -2449,7 +2469,7 @@ async def obtener_ventas_por_periodo(
     elif periodo == "anio":
         # Último año agrupado por mes
         fecha_inicio = today - timedelta(days=365)
-        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=timezone.utc)
+        fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time()).replace(tzinfo=PARAGUAY_TZ)
         
         base_filters.append(Venta.creado_en >= fecha_inicio_dt)
         
@@ -2495,7 +2515,7 @@ async def obtener_ventas_por_periodo(
 @api_router.get("/alertas", response_model=List[Alerta])
 async def obtener_alertas(empresa_id: int, db: AsyncSession = Depends(get_db)):
     alertas = []
-    today = date.today()
+    today = today_paraguay()
     
     fecha_limite = today + timedelta(days=30)
     productos_vencimiento = await db.execute(
@@ -2625,7 +2645,7 @@ def crear_pdf_reporte(titulo, subtitulo, columnas, datos, totales=None):
     # Footer
     elements.append(Spacer(1, 20))
     footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.grey, alignment=TA_CENTER)
-    elements.append(Paragraph(f"Generado el {datetime.now().strftime('%d/%m/%Y %H:%M')} - Luz Brill ERP", footer_style))
+    elements.append(Paragraph(f"Generado el {now_paraguay().strftime('%d/%m/%Y %H:%M')} - Luz Brill ERP", footer_style))
     
     doc.build(elements)
     buffer.seek(0)
@@ -2740,8 +2760,13 @@ async def reporte_stock(
 ):
     """Genera reporte PDF de stock actual con filtros"""
     try:
+        # Get products with aggregated stock and the minimum alerta_minima
         result = await db.execute(
-            select(Producto, func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0).label('stock_total'))
+            select(
+                Producto, 
+                func_sql.coalesce(func_sql.sum(StockActual.cantidad), 0).label('stock_total'),
+                func_sql.min(StockActual.alerta_minima).label('alerta_minima_val')
+            )
             .outerjoin(StockActual, Producto.id == StockActual.producto_id)
             .where(Producto.empresa_id == empresa_id, Producto.activo == True)
             .group_by(Producto.id)
@@ -2755,9 +2780,9 @@ async def reporte_stock(
         columnas = ['Código', 'Producto', 'Stock', 'Precio']
         datos = []
         
-        for producto, stock in productos:
-            # Check if stock is low (stock <= stock_minimo, default to 10 if not set)
-            stock_minimo = producto.stock_minimo if producto.stock_minimo is not None else 10
+        for producto, stock, alerta_minima_val in productos:
+            # Use alerta_minima from StockActual if available, else use stock_minimo from Producto, else default to 10
+            stock_minimo = alerta_minima_val if alerta_minima_val is not None else (producto.stock_minimo if producto.stock_minimo is not None else 10)
             es_alerta = stock <= stock_minimo
             
             # Filter by solo_alertas if specified
@@ -2772,14 +2797,14 @@ async def reporte_stock(
                 f"{float(producto.precio_venta):,.0f}"
             ])
         
-        if not datos:
-            raise HTTPException(status_code=404, detail="No se encontraron productos con stock bajo")
-        
         # Build subtitle
-        subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
+        subtitle = f"Fecha: {today_paraguay().strftime('%d/%m/%Y')}"
         if solo_alertas == 'true':
             subtitle += " | Solo stock bajo"
-        subtitle += f" | Total productos: {len(datos)}"
+        if not datos:
+            subtitle += " | Sin registros"
+        else:
+            subtitle += f" | Total productos: {len(datos)}"
         
         pdf_bytes = crear_pdf_reporte(
             "Reporte de Stock Actual",
@@ -2795,7 +2820,7 @@ async def reporte_stock(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=reporte_stock_{date.today().isoformat()}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=reporte_stock_{today_paraguay().isoformat()}.pdf"}
     )
 
 @api_router.get("/reportes/deudas-proveedores")
@@ -2847,8 +2872,32 @@ async def reporte_deudas_proveedores(
         result = await db.execute(query)
         deudas = result.all()
         
+        # If no data, return empty report instead of error
         if not deudas:
-            raise HTTPException(status_code=404, detail="No se encontraron deudas a proveedores con los filtros seleccionados")
+            # Create empty report
+            columnas = ['Proveedor', 'Descripción', 'Monto', 'Emisión', 'Vencimiento']
+            datos = []
+            totales = ['', '', '0', '', '']
+            
+            subtitle = f"Fecha: {today_paraguay().strftime('%d/%m/%Y')}"
+            if fecha_desde and fecha_hasta:
+                subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
+            if estado:
+                subtitle += f" | Estado: {estado}"
+            subtitle += " | Sin registros"
+            
+            pdf_bytes = crear_pdf_reporte(
+                "Reporte de Deudas a Proveedores",
+                subtitle,
+                columnas,
+                datos,
+                totales
+            )
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename=reporte_deudas_proveedores_{today_paraguay().isoformat()}.pdf"}
+            )
         
         columnas = ['Proveedor', 'Descripción', 'Monto', 'Emisión', 'Vencimiento']
         datos = []
@@ -2856,7 +2905,7 @@ async def reporte_deudas_proveedores(
         
         for deuda, proveedor in deudas:
             total_deuda += deuda.monto
-            vencido = "⚠️" if deuda.fecha_limite and deuda.fecha_limite < date.today() else ""
+            vencido = "⚠️" if deuda.fecha_limite and deuda.fecha_limite < today_paraguay() else ""
             datos.append([
                 proveedor.nombre[:25],
                 (deuda.descripcion or '-')[:30],
@@ -2868,7 +2917,7 @@ async def reporte_deudas_proveedores(
         totales = ['', '', f"{float(total_deuda):,.0f}", '', '']
         
         # Build subtitle
-        subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
+        subtitle = f"Fecha: {today_paraguay().strftime('%d/%m/%Y')}"
         if fecha_desde and fecha_hasta:
             subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
         if estado:
@@ -2890,7 +2939,7 @@ async def reporte_deudas_proveedores(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=reporte_deudas_proveedores_{date.today().isoformat()}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=reporte_deudas_proveedores_{today_paraguay().isoformat()}.pdf"}
     )
 
 @api_router.get("/reportes/creditos-clientes")
@@ -2942,8 +2991,32 @@ async def reporte_creditos_clientes(
         result = await db.execute(query)
         creditos = result.all()
         
+        # If no data, return empty report instead of error
         if not creditos:
-            raise HTTPException(status_code=404, detail="No se encontraron créditos de clientes con los filtros seleccionados")
+            # Create empty report
+            columnas = ['Cliente', 'Venta #', 'Original', 'Pagado', 'Pendiente', 'Fecha']
+            datos = []
+            totales = ['', 'TOTAL:', '0', '0', '0', '']
+            
+            subtitle = f"Fecha: {today_paraguay().strftime('%d/%m/%Y')}"
+            if fecha_desde and fecha_hasta:
+                subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
+            if estado:
+                subtitle += f" | Estado: {estado}"
+            subtitle += " | Sin registros"
+            
+            pdf_bytes = crear_pdf_reporte(
+                "Reporte de Créditos de Clientes",
+                subtitle,
+                columnas,
+                datos,
+                totales
+            )
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f"attachment; filename=reporte_creditos_clientes_{today_paraguay().isoformat()}.pdf"}
+            )
         
         columnas = ['Cliente', 'Venta #', 'Original', 'Pagado', 'Pendiente', 'Fecha']
         datos = []
@@ -2968,7 +3041,7 @@ async def reporte_creditos_clientes(
         totales = ['', 'TOTAL:', f"{float(total_original):,.0f}", f"{float(total_pagado):,.0f}", f"{float(total_pendiente):,.0f}", '']
         
         # Build subtitle
-        subtitle = f"Fecha: {date.today().strftime('%d/%m/%Y')}"
+        subtitle = f"Fecha: {today_paraguay().strftime('%d/%m/%Y')}"
         if fecha_desde and fecha_hasta:
             subtitle += f" | Período: {fecha_desde} al {fecha_hasta}"
         if estado:
@@ -2990,7 +3063,7 @@ async def reporte_creditos_clientes(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=reporte_creditos_clientes_{date.today().isoformat()}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=reporte_creditos_clientes_{today_paraguay().isoformat()}.pdf"}
     )
 
 # ==================== CICLOS DE SALARIO ====================
@@ -3111,7 +3184,7 @@ async def pagar_ciclo_salario(ciclo_id: int, db: AsyncSession = Depends(get_db))
         raise HTTPException(status_code=400, detail="Este ciclo ya fue pagado")
     
     ciclo.pagado = True
-    ciclo.fecha_pago = datetime.now(timezone.utc)
+    ciclo.fecha_pago = now_paraguay()
     
     await db.commit()
     return {"message": "Salario marcado como pagado", "ciclo_id": ciclo_id}
@@ -3120,7 +3193,7 @@ async def pagar_ciclo_salario(ciclo_id: int, db: AsyncSession = Depends(get_db))
 async def alertas_salarios_pendientes(empresa_id: int, db: AsyncSession = Depends(get_db)):
     """Obtiene alertas de salarios pendientes de pago"""
     # Get current period
-    hoy = date.today()
+    hoy = today_paraguay()
     periodo_actual = hoy.strftime('%Y-%m')
     
     # Get unpaid cycles

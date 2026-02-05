@@ -62,11 +62,11 @@ const Layout = ({ children }) => {
     <div className="min-h-screen bg-background">
       {/* Desktop Sidebar */}
       <aside className={cn(
-        "fixed left-0 top-0 z-40 h-screen w-64 bg-slate-900 text-white transition-transform lg:translate-x-0",
+        "fixed left-0 top-0 z-40 h-screen w-64 bg-neutral-900 text-white transition-transform lg:translate-x-0",
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         {/* Logo */}
-        <div className="flex h-16 items-center justify-between px-4 border-b border-slate-800">
+        <div className="flex h-16 items-center justify-between px-4 border-b border-neutral-800">
           <div className="flex items-center gap-2">
             {empresa?.logo_url ? (
               <img src={empresa.logo_url} alt={empresa.nombre} className="w-8 h-8 object-contain" />
@@ -82,7 +82,7 @@ const Layout = ({ children }) => {
           <Button 
             variant="ghost" 
             size="icon" 
-            className="lg:hidden text-white hover:bg-slate-800"
+            className="lg:hidden text-white hover:bg-neutral-800"
             onClick={() => setSidebarOpen(false)}
           >
             <X className="h-5 w-5" />
@@ -101,7 +101,7 @@ const Layout = ({ children }) => {
                   "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
                   isActive 
                     ? "bg-primary text-white" 
-                    : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    : "text-neutral-300 hover:bg-neutral-800 hover:text-white"
                 )}
               >
                 <item.icon className="h-5 w-5" />

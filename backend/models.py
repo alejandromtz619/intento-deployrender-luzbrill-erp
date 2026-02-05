@@ -263,6 +263,7 @@ class Producto(Base):
     descripcion = Column(Text)
     codigo_barra = Column(String(100), unique=True)
     precio_venta = Column(Numeric(15, 2), nullable=False)
+    stock_minimo = Column(Integer, default=10)  # Stock mínimo para alertas
     fecha_vencimiento = Column(Date)
     activo = Column(Boolean, default=True)
     imagen_url = Column(String(500))
