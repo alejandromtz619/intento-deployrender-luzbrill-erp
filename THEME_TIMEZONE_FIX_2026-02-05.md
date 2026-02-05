@@ -98,10 +98,56 @@ Los siguientes modelos fueron actualizados de `server_default=func.now()` a `def
 - Usa la zona horaria del servidor de BD (típicamente UTC)
 - **Resultado:** Desfase de 3-4 horas con hora local de Paraguay
 
-**Después (default):**
+**Después (default + creado_en explícito):**
 - La fecha/hora se calcula en Python/FastAPI
 - Usa explícitamente `America/Asuncion` timezone
 - **Resultado:** Hora correcta de Paraguay, respetando DST automáticamente
+
+**Nota importante:** Cambiar solo el modelo no es suficiente. Debido a que la base de datos puede tener la definición anterior cacheada, es necesario establecer explícitamente el campo `creado_en=now_paraguay()` al crear los objetos en `server.py`.
+
+## Cambios Adicionales en server.py
+
+Para garantizar que todos los timestamps nuevos usen la zona horaria correcta, se actualizaron los siguientes endpoints:
+
+### Objetos actualizados con `creado_en=now_paraguay()`:
+
+1. **Venta** (línea ~1230)
+   ```python
+   venta = Venta(..., creado_en=now_paraguay())
+   ```
+
+2. **CreditoCliente** (3 ubicaciones)
+   - Endpoint `/api/clientes/{cliente_id}/creditos` POST
+   - En `confirmar_venta`
+   - En `confirmar_venta_pendiente`
+   ```python
+   credito = CreditoCliente(..., creado_en=now_paraguay())
+   ```
+
+3. **PagoCredito**
+   ```python
+   pago = PagoCredito(..., fecha_pago=now_paraguay())
+   ```
+
+4. **MovimientoStock** (8 ubicaciones)
+   - Entrada de stock
+   - Traspaso (salida y entrada)
+   - Salida manual
+   - Confirmación de venta (2 lugares)
+   - Anulación de venta
+   ```python
+   movimiento = MovimientoStock(..., creado_en=now_paraguay())
+   ```
+
+5. **MateriaLaboratorio**
+   ```python
+   materia = MateriaLaboratorio(**data.model_dump(), creado_en=now_paraguay())
+   ```
+
+6. **Factura**
+   ```python
+   factura = Factura(**data.model_dump(), creado_en=now_paraguay())
+   ```
 
 ## Zona Horaria de Paraguay
 

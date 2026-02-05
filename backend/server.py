@@ -533,7 +533,8 @@ async def crear_credito_cliente(cliente_id: int, data: dict, db: AsyncSession = 
         monto_original=monto,
         monto_pendiente=monto,
         descripcion=data.get('descripcion'),
-        fecha_venta=today_paraguay()
+        fecha_venta=today_paraguay(),
+        creado_en=now_paraguay()
     )
     db.add(credito)
     await db.commit()
@@ -603,7 +604,8 @@ async def pagar_credito(credito_id: int, data: dict, db: AsyncSession = Depends(
     pago = PagoCredito(
         credito_id=credito_id,
         monto=monto_pago,
-        observacion=data.get('observacion')
+        observacion=data.get('observacion'),
+        fecha_pago=now_paraguay()
     )
     db.add(pago)
     
@@ -928,7 +930,7 @@ async def crear_materia_laboratorio(data: MateriaLaboratorioCreate, db: AsyncSes
     if existing_prod.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Código de barra ya existe en productos")
     
-    materia = MateriaLaboratorio(**data.model_dump())
+    materia = MateriaLaboratorio(**data.model_dump(), creado_en=now_paraguay())
     db.add(materia)
     await db.commit()
     await db.refresh(materia)
@@ -1036,7 +1038,8 @@ async def entrada_stock(data: MovimientoStockCreate, db: AsyncSession = Depends(
         tipo=TipoMovimientoStock.ENTRADA,
         cantidad=data.cantidad,
         referencia_tipo=data.referencia_tipo,
-        referencia_id=data.referencia_id
+        referencia_id=data.referencia_id,
+        creado_en=now_paraguay()
     )
     db.add(movimiento)
     
@@ -1081,13 +1084,15 @@ async def traspasar_stock(data: TraspasoStockCreate, db: AsyncSession = Depends(
         producto_id=data.producto_id,
         almacen_id=data.almacen_origen_id,
         tipo=TipoMovimientoStock.TRASPASO,
-        cantidad=-data.cantidad
+        cantidad=-data.cantidad,
+        creado_en=now_paraguay()
     )
     mov_entrada = MovimientoStock(
         producto_id=data.producto_id,
         almacen_id=data.almacen_destino_id,
         tipo=TipoMovimientoStock.TRASPASO,
-        cantidad=data.cantidad
+        cantidad=data.cantidad,
+        creado_en=now_paraguay()
     )
     db.add(mov_salida)
     db.add(mov_entrada)
@@ -1122,7 +1127,8 @@ async def registrar_salida_stock(data: dict, db: AsyncSession = Depends(get_db))
         almacen_id=almacen_id,
         tipo=TipoMovimientoStock.SALIDA,
         cantidad=-cantidad,
-        observacion=motivo
+        observacion=motivo,
+        creado_en=now_paraguay()
     )
     db.add(movimiento)
     
@@ -1224,7 +1230,8 @@ async def crear_venta(data: VentaCreate, crear_pendiente: bool = False, db: Asyn
         descuento=descuento,
         tipo_pago=data.tipo_pago,
         es_delivery=data.es_delivery,
-        estado=EstadoVenta.PENDIENTE if crear_pendiente else EstadoVenta.BORRADOR
+        estado=EstadoVenta.PENDIENTE if crear_pendiente else EstadoVenta.BORRADOR,
+        creado_en=now_paraguay()
     )
     db.add(venta)
     await db.flush()
@@ -1273,7 +1280,8 @@ async def confirmar_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
                     tipo=TipoMovimientoStock.SALIDA,
                     cantidad=-a_descontar,
                     referencia_tipo='venta',
-                    referencia_id=venta.id
+                    referencia_id=venta.id,
+                    creado_en=now_paraguay()
                 )
                 db.add(mov)
         
@@ -1490,7 +1498,8 @@ async def confirmar_venta_pendiente(venta_id: int, db: AsyncSession = Depends(ge
                     tipo=TipoMovimientoStock.SALIDA,
                     cantidad=-a_descontar,
                     referencia_tipo='venta',
-                    referencia_id=venta.id
+                    referencia_id=venta.id,
+                    creado_en=now_paraguay()
                 )
                 db.add(mov)
         
@@ -1720,7 +1729,8 @@ async def anular_venta(venta_id: int, db: AsyncSession = Depends(get_db)):
                         tipo=TipoMovimientoStock.ENTRADA,
                         cantidad=cantidad_devolver,
                         referencia_tipo="ANULACION_VENTA",
-                        referencia_id=venta_id
+                        referencia_id=venta_id,
+                        creado_en=now_paraguay()
                     )
                     db.add(movimiento)
             
@@ -2219,7 +2229,7 @@ async def eliminar_entrega(entrega_id: int, db: AsyncSession = Depends(get_db)):
 # ==================== FACTURAS ====================
 @api_router.post("/facturas", response_model=FacturaResponse)
 async def crear_factura(data: FacturaCreate, db: AsyncSession = Depends(get_db)):
-    factura = Factura(**data.model_dump())
+    factura = Factura(**data.model_dump(), creado_en=now_paraguay())
     db.add(factura)
     await db.commit()
     await db.refresh(factura)
