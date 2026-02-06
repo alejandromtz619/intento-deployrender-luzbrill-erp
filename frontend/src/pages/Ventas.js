@@ -40,7 +40,7 @@ import { cn } from '../lib/utils';
 import PrintModal from '../components/PrintModal';
 
 const Ventas = () => {
-  const { api, empresa, user } = useApp();
+  const { api, empresa, user, hasPermission } = useApp();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   
@@ -285,8 +285,12 @@ const Ventas = () => {
       if (value < 1) return;
     }
     
-    // Permitir modificar precio (para gerente/admin)
+    // Validar permiso para modificar precio
     if (field === 'precio_unitario') {
+      if (!hasPermission('ventas.modificar_precio')) {
+        toast.error('No tiene permiso para modificar precios');
+        return;
+      }
       if (value < 0) return;
     }
     
@@ -301,7 +305,9 @@ const Ventas = () => {
   // Calculate totals - usar privilegios del representante si existe
   const clientePrivilegios = isRepresentante && representante ? representante : selectedCliente;
   const subtotal = cart.reduce((sum, item) => sum + (item.cantidad * item.precio_unitario), 0);
-  const descuentoPorcentaje = clientePrivilegios?.descuento_porcentaje || 0;
+  
+  // Aplicar descuento solo si el usuario tiene el permiso
+  const descuentoPorcentaje = (hasPermission('ventas.aplicar_descuento') && clientePrivilegios?.descuento_porcentaje) || 0;
   const descuento = subtotal * descuentoPorcentaje / 100;
   const subtotalConDescuento = subtotal - descuento;
   const iva = subtotalConDescuento * 10 / 110; // IVA 10% included
@@ -514,8 +520,12 @@ const Ventas = () => {
                     RUC: {selectedCliente.ruc || 'N/A'} | Tel: {selectedCliente.telefono || 'N/A'}
                   </p>
                   {selectedCliente.descuento_porcentaje > 0 && (
-                    <Badge className="mt-1 badge-success">
+                    <Badge className={cn(
+                      "mt-1",
+                      hasPermission('ventas.aplicar_descuento') ? "badge-success" : "badge-muted"
+                    )}>
                       {selectedCliente.descuento_porcentaje}% descuento
+                      {!hasPermission('ventas.aplicar_descuento') && " (sin permiso)"}
                     </Badge>
                   )}
                 </div>
@@ -786,6 +796,7 @@ const Ventas = () => {
                           value={item.precio_unitario}
                           onChange={(e) => updateCartItem(idx, 'precio_unitario', parseFloat(e.target.value) || 0)}
                           className="w-28 h-7 text-right font-mono-data"
+                          disabled={!hasPermission('ventas.modificar_precio')}
                         />
                         <span className="text-sm font-mono-data font-semibold ml-auto">
                           = {formatCurrency(item.cantidad * item.precio_unitario)}
