@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func as func_sql, and_, or_, update
+from sqlalchemy import select, func as func_sql, and_, or_, update, text
 from sqlalchemy.orm import selectinload
 from dotenv import load_dotenv
 from pathlib import Path
@@ -2501,7 +2501,7 @@ async def obtener_ventas_por_periodo(
         ]))
     
     if periodo == "dia":
-        # Ventas por hora del día actual
+        # Ventas por hora del día actual en zona horaria de Paraguay
         today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=PARAGUAY_TZ)
         today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=PARAGUAY_TZ)
         
@@ -2510,9 +2510,16 @@ async def obtener_ventas_por_periodo(
             Venta.creado_en <= today_end
         ])
         
+        # Para PostgreSQL: convertir a zona horaria de Paraguay antes de extraer la hora
+        # func_sql.timezone('America/Asuncion', ...) convierte a hora local
+        hora_paraguay = func_sql.extract(
+            'hour', 
+            func_sql.timezone(text("'America/Asuncion'"), Venta.creado_en)
+        )
+        
         result = await db.execute(
             select(
-                func_sql.extract('hour', Venta.creado_en).label('hora'),
+                hora_paraguay.label('hora'),
                 func_sql.count(Venta.id).label('cantidad'),
                 func_sql.coalesce(func_sql.sum(Venta.total), 0).label('monto'),
                 func_sql.coalesce(func_sql.sum(
@@ -2523,7 +2530,7 @@ async def obtener_ventas_por_periodo(
                 ), 0).label('unidades')
             )
             .where(and_(*base_filters))
-            .group_by(func_sql.extract('hour', Venta.creado_en))
+            .group_by(hora_paraguay)
             .order_by('hora')
         )
         return [

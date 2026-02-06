@@ -175,6 +175,11 @@ const Ventas = () => {
   const handleBarcodeSearch = useCallback(async (code) => {
     if (!code.trim()) return;
     
+    if (!selectedCliente) {
+      toast.error('Primero seleccione un cliente');
+      return;
+    }
+    
     try {
       // Try product first
       const product = productos.find(p => p.codigo_barra === code);
@@ -196,7 +201,7 @@ const Ventas = () => {
     } catch (e) {
       toast.error('Error al buscar producto');
     }
-  }, [productos, materias]);
+  }, [productos, materias, selectedCliente]);
 
   // Handle barcode input (USB scanner sends Enter key)
   useEffect(() => {
