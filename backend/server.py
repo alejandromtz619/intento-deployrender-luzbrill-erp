@@ -90,7 +90,7 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 # JWT Config
 JWT_SECRET = os.environ.get('JWT_SECRET', 'luzbrill-secret-key-change-in-production')
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24
+JWT_EXPIRATION_HOURS = 8
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
