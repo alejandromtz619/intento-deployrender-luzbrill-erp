@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
-import { LayoutDashboard, ShoppingCart, Truck } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Truck, LogOut } from 'lucide-react';
 
 const Home = () => {
-  const { user, empresa, userPermisos } = useApp();
+  const { user, empresa, userPermisos, logout } = useApp();
   const navigate = useNavigate();
 
   const mainModules = [
@@ -26,7 +26,7 @@ const Home = () => {
       title: 'Ventas',
       description: 'Crear y gestionar ventas, facturación',
       color: 'from-green-500 to-green-600',
-      permission: 'ventas.crear'
+      permission: ['ventas.crear', 'ventas.ver'] // Acepta cualquiera de estos
     },
     {
       id: 'delivery',
@@ -42,6 +42,13 @@ const Home = () => {
   // Filter modules by user permissions
   const visibleModules = mainModules.filter(module => {
     if (!module.permission) return true; // No permission required
+    
+    // Si permission es array, verificar si tiene al menos uno
+    if (Array.isArray(module.permission)) {
+      return module.permission.some(perm => userPermisos.includes(perm));
+    }
+    
+    // Si es string, verificar ese permiso
     return userPermisos.includes(module.permission);
   });
 
@@ -49,7 +56,18 @@ const Home = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-4 sm:p-8">
       <div className="max-w-4xl mx-auto">
         {/* Welcome Header */}
-        <div className="text-center mb-12">
+        <div className="text-center mb-12 relative">
+          {/* Logout button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={logout}
+            className="absolute top-0 right-0"
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Cerrar Sesión
+          </Button>
+          
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-primary mb-6">
             {empresa?.logo_url ? (
               <img src={empresa.logo_url} alt={empresa.nombre} className="w-full h-full object-contain p-3" />

@@ -44,8 +44,19 @@ const ProtectedRoute = ({ children, permission }) => {
   }
   
   // Validar permiso si se especifica
-  if (permission && !hasPermission(permission)) {
-    return <Navigate to="/home" replace />;
+  if (permission) {
+    // Si permission es array, verificar si tiene al menos uno
+    if (Array.isArray(permission)) {
+      const hasAnyPermission = permission.some(perm => hasPermission(perm));
+      if (!hasAnyPermission) {
+        return <Navigate to="/home" replace />;
+      }
+    } else {
+      // Si es string, verificar ese permiso
+      if (!hasPermission(permission)) {
+        return <Navigate to="/home" replace />;
+      }
+    }
   }
   
   return children;
@@ -87,7 +98,7 @@ const AppRoutes = () => {
       <Route 
         path="/ventas" 
         element={
-          <ProtectedRoute permission="ventas.crear">
+          <ProtectedRoute permission={['ventas.crear', 'ventas.ver']}>
             <Layout>
               <Ventas />
             </Layout>
