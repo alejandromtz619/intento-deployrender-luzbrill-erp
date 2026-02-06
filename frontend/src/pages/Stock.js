@@ -312,7 +312,7 @@ const Stock = () => {
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[400px] p-0">
-                      <Command>
+                      <Command shouldFilter={false}>
                         <CommandInput 
                           placeholder="Buscar por nombre o código..." 
                           value={productoSearchTraspaso}
@@ -324,7 +324,7 @@ const Stock = () => {
                             .filter(p => 
                               !productoSearchTraspaso || 
                               p.nombre.toLowerCase().includes(productoSearchTraspaso.toLowerCase()) ||
-                              p.codigo_barra?.includes(productoSearchTraspaso)
+                              p.codigo_barra?.toLowerCase().includes(productoSearchTraspaso.toLowerCase())
                             )
                             .map((p) => (
                               <CommandItem
@@ -425,7 +425,7 @@ const Stock = () => {
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[400px] p-0">
-                      <Command>
+                      <Command shouldFilter={false}>
                         <CommandInput 
                           placeholder="Buscar por nombre o código..." 
                           value={productoSearchEntrada}
@@ -437,7 +437,7 @@ const Stock = () => {
                             .filter(p => 
                               !productoSearchEntrada || 
                               p.nombre.toLowerCase().includes(productoSearchEntrada.toLowerCase()) ||
-                              p.codigo_barra?.includes(productoSearchEntrada)
+                              p.codigo_barra?.toLowerCase().includes(productoSearchEntrada.toLowerCase())
                             )
                             .map((p) => (
                               <CommandItem
@@ -525,7 +525,7 @@ const Stock = () => {
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-[400px] p-0">
-                      <Command>
+                      <Command shouldFilter={false}>
                         <CommandInput 
                           placeholder="Buscar por nombre o código..." 
                           value={productoSearchSalida}
@@ -537,7 +537,7 @@ const Stock = () => {
                             .filter(p => 
                               !productoSearchSalida || 
                               p.nombre.toLowerCase().includes(productoSearchSalida.toLowerCase()) ||
-                              p.codigo_barra?.includes(productoSearchSalida)
+                              p.codigo_barra?.toLowerCase().includes(productoSearchSalida.toLowerCase())
                             )
                             .map((p) => (
                               <CommandItem

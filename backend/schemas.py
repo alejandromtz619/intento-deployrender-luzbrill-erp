@@ -338,6 +338,13 @@ class TraspasoStockCreate(BaseModel):
     almacen_destino_id: int
     cantidad: int
 
+# Salida Stock
+class SalidaStockCreate(BaseModel):
+    producto_id: int
+    almacen_id: int
+    cantidad: int
+    motivo: Optional[str] = None
+
 # Venta
 class VentaItemBase(BaseModel):
     producto_id: Optional[int] = None

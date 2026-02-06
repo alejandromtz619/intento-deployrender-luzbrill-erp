@@ -48,7 +48,7 @@ from schemas import (
     ProductoCreate, ProductoResponse, ProductoConStock,
     MateriaLaboratorioCreate, MateriaLaboratorioResponse,
     AlmacenCreate, AlmacenResponse, StockActualCreate, StockActualResponse, StockConDetalles,
-    MovimientoStockCreate, MovimientoStockResponse, TraspasoStockCreate,
+    MovimientoStockCreate, MovimientoStockResponse, TraspasoStockCreate, SalidaStockCreate,
     VentaCreate, VentaUpdate, VentaResponse, VentaConDetalles, VentaItemResponse,
     FuncionarioCreate, FuncionarioResponse,
     AdelantoSalarioCreate, AdelantoSalarioResponse,
@@ -1101,33 +1101,35 @@ async def traspasar_stock(data: TraspasoStockCreate, db: AsyncSession = Depends(
     return {"message": "Traspaso realizado correctamente"}
 
 @api_router.post("/stock/salida")
-async def registrar_salida_stock(data: dict, db: AsyncSession = Depends(get_db)):
+async def registrar_salida_stock(data: SalidaStockCreate, db: AsyncSession = Depends(get_db)):
     """Registra una salida/eliminación de stock"""
-    producto_id = data.get('producto_id')
-    almacen_id = data.get('almacen_id')
-    cantidad = data.get('cantidad', 0)
-    motivo = data.get('motivo', 'Salida manual')
     
     result = await db.execute(
         select(StockActual).where(
-            StockActual.producto_id == producto_id,
-            StockActual.almacen_id == almacen_id
+            StockActual.producto_id == data.producto_id,
+            StockActual.almacen_id == data.almacen_id
         )
     )
     stock = result.scalar_one_or_none()
     
-    if not stock or stock.cantidad < cantidad:
-        raise HTTPException(status_code=400, detail="Stock insuficiente")
+    if not stock:
+        raise HTTPException(status_code=404, detail="No hay stock disponible en este almacén")
     
-    stock.cantidad -= cantidad
+    if stock.cantidad < data.cantidad:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Stock insuficiente. Disponible: {stock.cantidad}, solicitado: {data.cantidad}"
+        )
+    
+    stock.cantidad -= data.cantidad
     
     # Register movement
     movimiento = MovimientoStock(
-        producto_id=producto_id,
-        almacen_id=almacen_id,
+        producto_id=data.producto_id,
+        almacen_id=data.almacen_id,
         tipo=TipoMovimientoStock.SALIDA,
-        cantidad=-cantidad,
-        observacion=motivo,
+        cantidad=-data.cantidad,
+        observacion=data.motivo or 'Salida manual',
         creado_en=now_paraguay()
     )
     db.add(movimiento)
