@@ -1129,7 +1129,6 @@ async def registrar_salida_stock(data: SalidaStockCreate, db: AsyncSession = Dep
         almacen_id=data.almacen_id,
         tipo=TipoMovimientoStock.SALIDA,
         cantidad=-data.cantidad,
-        observacion=data.motivo or 'Salida manual',
         creado_en=now_paraguay()
     )
     db.add(movimiento)
